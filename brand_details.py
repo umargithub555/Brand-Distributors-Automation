@@ -26,6 +26,7 @@ import httpx
 load_dotenv()
 
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "")
+N8N_EMAIL_WEBHOOK_URL = os.getenv("N8N_EMAIL_WEBHOOK_URL", "")
 
 client = genai.Client(
     api_key=os.getenv("BRAND_GEMIINI_API_KEY")
@@ -404,6 +405,77 @@ async def trigger_brand_processing(brand_id: str):
     return {"success": True, "brand_id": brand_id, "brand_name": brand["brand"]}
 
 
+@app.post("/brands/{brand_id}/send-email")
+async def trigger_brand_email(brand_id: str):
+    """
+    Proxies a request to the n8n email webhook from the server side.
+    """
+    try:
+        oid = ObjectId(brand_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid brand ID")
+
+    brand = db["Brands"].find_one({"_id": oid})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    webhook_url = N8N_EMAIL_WEBHOOK_URL
+    if not webhook_url:
+        raise HTTPException(status_code=500, detail="N8N_EMAIL_WEBHOOK_URL is not configured in .env")
+
+    payload = {
+        "_id": brand_id,
+        "brand_id": brand_id,
+        "brand_name": brand["brand"],
+        "area": brand.get("country", "USA"),
+        "brand_email": brand.get("brand_email", ""),
+        "parent_email": brand.get("parent_email", brand.get("parent_company_email", "")),
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            resp = await http.post(webhook_url, json=payload)
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        error_text = e.response.text
+        raise HTTPException(
+            status_code=502, 
+            detail=f"n8n returned HTTP {e.response.status_code}. (Response: {error_text})"
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=502, 
+            detail=f"Could not connect to n8n email webhook at {webhook_url}. Error: {str(e)}"
+        )
+
+    # Optionally mark email_sent = True immediately, or let n8n do it later.
+    # For now, we just trigger it and let n8n handle the rest as requested.
+    return {"success": True, "brand_id": brand_id, "brand_name": brand["brand"]}
 # @app.get("/")
 # def brand_ui():
 #     return FileResponse("brand_dashboard.html", media_type="text/html")
+
+
+
+
+
+
+
+
+
+# $envs = @(
+#     "agentic-ai",
+#     "booking-agent",
+#     "verify-systems",
+#     "interior-design",
+#     "interior-test",
+#     "object-detection",
+#     "pdf_quiz",
+#     "pdf_quiz2",
+#     "wardrobe_env"
+    
+# )
+
+# foreach ($e in $envs) {
+#     conda env export -n $e --no-builds > "D:\conda-backup\$e.yml"
+# }

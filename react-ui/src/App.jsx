@@ -5,7 +5,7 @@ import Dashboard from './components/Dashboard';
 import Upload from './components/Upload';
 
 function App() {
-  const [apiUrl, setApiUrl] = useState('http://localhost:8000');
+  const [apiUrl, setApiUrl] = useState('/api');
   const location = useLocation();
 
   return (
@@ -44,7 +44,7 @@ function App() {
             className="input-field" 
             value={apiUrl}
             onChange={(e) => setApiUrl(e.target.value)}
-            placeholder="Backend URL (localhost:8000)"
+            placeholder="Backend URL (e.g. /api or https://...)"
           />
         </div>
       </header>
