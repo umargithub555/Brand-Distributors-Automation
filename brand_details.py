@@ -29,7 +29,7 @@ N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "")
 N8N_EMAIL_WEBHOOK_URL = os.getenv("N8N_EMAIL_WEBHOOK_URL", "")
 
 client = genai.Client(
-    api_key=os.getenv("BRAND_GEMIINI_API_KEY")
+    api_key=os.getenv("BRAND_GEMINI_API_KEY")
 )
 
 app = FastAPI()
