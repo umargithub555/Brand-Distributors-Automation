@@ -8,7 +8,7 @@ function Dashboard({ apiUrl }) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [expandedId, setExpandedId] = useState(null);
-  
+  const [emailingBrands, setEmailingBrands] = useState({});
   const [stats, setStats] = useState({
     total: 0,
     distributors_found: 0,
@@ -65,6 +65,29 @@ function Dashboard({ apiUrl }) {
     if (filter === 'pending') return b.emails_found && !b.email_sent;
     return true;
   });
+
+  const handleSendEmail = async (brandId) => {
+    setEmailingBrands(prev => ({ ...prev, [brandId]: true }));
+    try {
+      const apiBase = apiUrl.replace(/\/$/, '');
+      const res = await fetch(`${apiBase}/brands/${brandId}/send-email`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to send email');
+      }
+      // Assuming success, we could refresh data or optimistically update
+      alert('Email triggered successfully via n8n!');
+      // Optionally reload data to get updated stats if the backend updates them immediately
+      // loadData();
+    } catch (err) {
+      console.error(err);
+      alert('Error triggering email: ' + err.message);
+    } finally {
+      setEmailingBrands(prev => ({ ...prev, [brandId]: false }));
+    }
+  };
 
   const getConfColor = (val) => {
     if (val >= 85) return '#10b981';
@@ -189,6 +212,23 @@ function Dashboard({ apiUrl }) {
                       <label>Parent company</label>
                       <div className="val">{b.parent_company || <span className="null">none</span>}</div>
                     </div>
+                    <div className="detail-box">
+                      <label>Parent email</label>
+                      <div className="val">{b.parent_email || b.parent_company_email ? <a href={`mailto:${b.parent_email || b.parent_company_email}`}>{b.parent_email || b.parent_company_email}</a> : <span className="null">not found</span>}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: '16px', marginBottom: '16px' }}>
+                    <button 
+                      className="btn-process"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSendEmail(uId);
+                      }}
+                      disabled={emailingBrands[uId]}
+                    >
+                      {emailingBrands[uId] ? 'Sending...' : 'Send Email via n8n'}
+                    </button>
                   </div>
 
                   {distCount > 0 ? (
