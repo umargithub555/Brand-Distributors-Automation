@@ -77,10 +77,22 @@ function Dashboard({ apiUrl }) {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.detail || 'Failed to send email');
       }
-      // Assuming success, we could refresh data or optimistically update
+      setBrands(prevBrands => prevBrands.map(brand => {
+        const currentId = brand._id || brand.id;
+        if (currentId !== brandId) return brand;
+        return {
+          ...brand,
+          email_sent: true,
+          email_sent_at: new Date().toISOString(),
+        };
+      }));
+      setStats(prev => ({
+        ...prev,
+        email_sent: prev.email_sent + 1,
+        pending_emails: Math.max(0, prev.pending_emails - 1),
+      }));
+
       alert('Email triggered successfully via n8n!');
-      // Optionally reload data to get updated stats if the backend updates them immediately
-      // loadData();
     } catch (err) {
       console.error(err);
       alert('Error triggering email: ' + err.message);
@@ -167,6 +179,7 @@ function Dashboard({ apiUrl }) {
           const isExpanded = expandedId === uId;
           const initials = (b.brand || 'B').slice(0, 2);
           const distCount = b.distributors?.length || 0;
+          const isEmailActionDisabled = emailingBrands[uId] || b.email_sent;
 
           return (
             <div key={uId} className="brand-card">
@@ -225,9 +238,9 @@ function Dashboard({ apiUrl }) {
                         e.stopPropagation();
                         handleSendEmail(uId);
                       }}
-                      disabled={emailingBrands[uId]}
+                      disabled={isEmailActionDisabled}
                     >
-                      {emailingBrands[uId] ? 'Sending...' : 'Send Email via n8n'}
+                      {emailingBrands[uId] ? 'Sending...' : b.email_sent ? 'Email Already Sent' : 'Send Email via n8n'}
                     </button>
                   </div>
 

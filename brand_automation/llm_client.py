@@ -1,4 +1,4 @@
-# """
+﻿# """
 # Thin wrapper around the Gemini API: retries, JSON extraction, logging.
 # """
 
