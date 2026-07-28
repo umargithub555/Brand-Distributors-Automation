@@ -1,48 +1,100 @@
-import React, { useState, useEffect } from 'react';
-import { Search, ChevronDown, RefreshCw, AlertCircle } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  AlertCircle,
+  Building2,
+  ExternalLink,
+  Globe,
+  Phone,
+  RefreshCw,
+  Search,
+  X,
+} from 'lucide-react';
+
+const PAGE_SIZE = 20;
 
 function Dashboard({ apiUrl }) {
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
-  const [expandedId, setExpandedId] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalBrands, setTotalBrands] = useState(0);
+  const [selectedBrand, setSelectedBrand] = useState(null);
   const [emailingBrands, setEmailingBrands] = useState({});
   const [stats, setStats] = useState({
     total: 0,
     distributors_found: 0,
     emails_found: 0,
     email_sent: 0,
-    pending_emails: 0
+    pending_emails: 0,
   });
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setCurrentPage(1);
+      setSearch(searchInput.trim());
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter]);
+
+  const totalPages = Math.max(1, Math.ceil(totalBrands / PAGE_SIZE));
+
+  const buildBrandQuery = () => {
+    const params = new URLSearchParams();
+    params.set('skip', String((currentPage - 1) * PAGE_SIZE));
+    params.set('limit', String(PAGE_SIZE));
+    if (search) params.set('q', search);
+    if (filter === 'distributors') params.set('distributors_found', 'true');
+    if (filter === 'emails') params.set('emails_found', 'true');
+    if (filter === 'sent') params.set('email_sent', 'true');
+    if (filter === 'pending') {
+      params.set('emails_found', 'true');
+      params.set('email_sent', 'false');
+    }
+    return params.toString();
+  };
 
   const loadData = async () => {
     setLoading(true);
     setError(null);
     try {
       const apiBase = apiUrl.replace(/\/$/, '');
+      const query = buildBrandQuery();
       const [brandsRes, statsRes] = await Promise.all([
-        fetch(`${apiBase}/brands?limit=200`),
-        fetch(`${apiBase}/brands/stats`)
+        fetch(`${apiBase}/brands?${query}`),
+        fetch(`${apiBase}/brands/stats`),
       ]);
 
       if (!brandsRes.ok || !statsRes.ok) {
         throw new Error('API Error');
       }
 
-      const allBrands = await brandsRes.json();
+      const brandsPayload = await brandsRes.json();
       const statsData = await statsRes.json();
+      const items = brandsPayload.items || [];
 
-      setBrands(allBrands);
+      setBrands(items);
+      setTotalBrands(brandsPayload.total ?? items.length);
       setStats({
-        total: statsData.total ?? allBrands.length,
+        total: statsData.total ?? items.length,
         distributors_found: statsData.distributors_found ?? 0,
         emails_found: statsData.emails_found ?? 0,
         email_sent: statsData.email_sent ?? 0,
-        pending_emails: statsData.pending_emails ?? 0
+        pending_emails: statsData.pending_emails ?? 0,
       });
-      
+
+      if (selectedBrand) {
+        const updatedSelectedBrand = items.find((item) => (item._id || item.id) === (selectedBrand._id || selectedBrand.id));
+        if (updatedSelectedBrand) {
+          setSelectedBrand(updatedSelectedBrand);
+        }
+      }
     } catch (err) {
       console.error(err);
       setError('Failed to connect to API: ' + err.message);
@@ -52,22 +104,10 @@ function Dashboard({ apiUrl }) {
 
   useEffect(() => {
     loadData();
-  }, [apiUrl]);
-
-  const filteredBrands = brands.filter(b => {
-    const q = search.toLowerCase();
-    const matchQ = !q || (b.brand || '').toLowerCase().includes(q) || (b.country || '').toLowerCase().includes(q);
-    if (!matchQ) return false;
-    
-    if (filter === 'distributors') return b.distributors_found;
-    if (filter === 'emails') return b.emails_found;
-    if (filter === 'sent') return b.email_sent;
-    if (filter === 'pending') return b.emails_found && !b.email_sent;
-    return true;
-  });
+  }, [apiUrl, filter, currentPage, search]);
 
   const handleSendEmail = async (brandId) => {
-    setEmailingBrands(prev => ({ ...prev, [brandId]: true }));
+    setEmailingBrands((prev) => ({ ...prev, [brandId]: true }));
     try {
       const apiBase = apiUrl.replace(/\/$/, '');
       const res = await fetch(`${apiBase}/brands/${brandId}/send-email`, {
@@ -77,7 +117,8 @@ function Dashboard({ apiUrl }) {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.detail || 'Failed to send email');
       }
-      setBrands(prevBrands => prevBrands.map(brand => {
+
+      setBrands((prevBrands) => prevBrands.map((brand) => {
         const currentId = brand._id || brand.id;
         if (currentId !== brandId) return brand;
         return {
@@ -86,18 +127,30 @@ function Dashboard({ apiUrl }) {
           email_sent_at: new Date().toISOString(),
         };
       }));
-      setStats(prev => ({
+
+      setSelectedBrand((prevBrand) => {
+        if (!prevBrand) return prevBrand;
+        const currentId = prevBrand._id || prevBrand.id;
+        if (currentId !== brandId) return prevBrand;
+        return {
+          ...prevBrand,
+          email_sent: true,
+          email_sent_at: new Date().toISOString(),
+        };
+      });
+
+      setStats((prev) => ({
         ...prev,
         email_sent: prev.email_sent + 1,
         pending_emails: Math.max(0, prev.pending_emails - 1),
       }));
 
-      alert('Email triggered successfully via n8n!');
+      alert('Email triggered successfully.');
     } catch (err) {
       console.error(err);
       alert('Error triggering email: ' + err.message);
     } finally {
-      setEmailingBrands(prev => ({ ...prev, [brandId]: false }));
+      setEmailingBrands((prev) => ({ ...prev, [brandId]: false }));
     }
   };
 
@@ -107,8 +160,21 @@ function Dashboard({ apiUrl }) {
     return '#ef4444';
   };
 
+  const selectedBrandPrimaryEmail = useMemo(() => {
+    if (!selectedBrand) return null;
+    return selectedBrand.brand_email || selectedBrand.parent_company_email || null;
+  }, [selectedBrand]);
+
   return (
-    <div>
+    <div className="page-shell">
+      <section className="page-hero">
+        <div>
+          <span className="eyebrow">Research dashboard</span>
+          <h2 className="page-title">Track processed brands and outreach readiness</h2>
+          <p className="page-subtitle">Review distributor research, inspect contact details, and send verification emails from a cleaner control surface.</p>
+        </div>
+      </section>
+
       <div className="stats-grid">
         <div className={`stat-card ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>
           <div className="stat-label">Processed Brands</div>
@@ -132,33 +198,38 @@ function Dashboard({ apiUrl }) {
         </div>
       </div>
 
-      <div className="toolbar">
-        <div className="search-wrap">
-          <Search className="search-icon" size={16} />
-          <input 
-            className="search-input" 
-            type="text" 
-            placeholder="Search brand or country..." 
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+      <div className="surface-card controls-card">
+        <div className="toolbar toolbar-stacked">
+          <div className="search-wrap search-wide">
+            <Search className="search-icon" size={16} />
+            <input
+              className="search-input"
+              type="text"
+              placeholder="Search brand, country, or parent company..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+            />
+          </div>
+          <button onClick={loadData} className="btn-primary btn-secondary" disabled={loading}>
+            <RefreshCw size={14} className={loading ? 'spin-inline' : ''} />
+            Refresh Data
+          </button>
         </div>
-        
-        <button onClick={loadData} className="btn-primary" disabled={loading} style={{ marginLeft: 'auto' }}>
-          <RefreshCw size={14} className={loading ? 'spin-center' : ''} style={{ margin: 0 }} /> 
-          Refresh Data
-        </button>
+        <div className="results-meta">
+          <span>Showing {brands.length} of {totalBrands} brands</span>
+          <span>Page {currentPage} of {totalPages}</span>
+        </div>
       </div>
 
       <div className="brands-list">
         {loading && (
           <div className="empty-state">
             <div className="spinner spin-center"></div>
-            <h3>Loading data...</h3>
-            <p>Fetching processed brands from {apiUrl}</p>
+            <h3>Loading dashboard</h3>
+            <p>Fetching processed brands from the backend.</p>
           </div>
         )}
-        
+
         {!loading && error && (
           <div className="empty-state">
             <AlertCircle size={48} />
@@ -167,119 +238,184 @@ function Dashboard({ apiUrl }) {
           </div>
         )}
 
-        {!loading && !error && filteredBrands.length === 0 && (
+        {!loading && !error && brands.length === 0 && (
           <div className="empty-state">
             <h3>No brands found</h3>
             <p>Try adjusting your search or filters, or upload a new CSV.</p>
           </div>
         )}
 
-        {!loading && !error && filteredBrands.map((b, index) => {
+        {!loading && !error && brands.map((b, index) => {
           const uId = b._id || b.id || index;
-          const isExpanded = expandedId === uId;
-          const initials = (b.brand || 'B').slice(0, 2);
+          const initials = (b.brand || 'B').slice(0, 2).toUpperCase();
           const distCount = b.distributors?.length || 0;
-          const isEmailActionDisabled = emailingBrands[uId] || b.email_sent;
 
           return (
-            <div key={uId} className="brand-card">
-              <div className="brand-header" onClick={() => setExpandedId(isExpanded ? null : uId)}>
+            <button
+              key={uId}
+              type="button"
+              className="brand-list-card"
+              onClick={() => setSelectedBrand(b)}
+            >
+              <div className="brand-list-card__main">
                 <div className="brand-icon">{initials}</div>
                 <div>
                   <div className="brand-name">{b.brand}</div>
-                  <div className="brand-country">{b.country} {b.parent_company ? `· ${b.parent_company}` : ''}</div>
-                </div>
-                <div>
-                  {b.distributors_found 
-                    ? <span className="badge green">{distCount} distributor{distCount !== 1 ? 's' : ''}</span>
-                    : <span className="badge gray">no distributors</span>}
-                </div>
-                <div>
-                  {b.emails_found ? <span className="badge blue">email found</span> : <span className="badge gray">no email</span>}
-                </div>
-                <div>
-                  {b.email_sent ? <span className="badge purple">email sent</span> : <span className="badge gray">not sent</span>}
-                </div>
-                <div>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    {b.processed_at ? new Date(b.processed_at).toLocaleDateString() : 'Just now'}
-                  </span>
-                </div>
-                <div style={{ color: 'var(--text-secondary)', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
-                  <ChevronDown size={18} />
+                  <div className="brand-country">{b.country}{b.parent_company ? ` - ${b.parent_company}` : ''}</div>
                 </div>
               </div>
-              
-              {isExpanded && (
-                <div className="brand-body">
-                  <div className="detail-grid">
-                    <div className="detail-box">
-                      <label>Official website</label>
-                      <div className="val">{b.official_website ? <a href={b.official_website} target="_blank" rel="noreferrer">{b.official_website}</a> : <span className="null">not found</span>}</div>
-                    </div>
-                    <div className="detail-box">
-                      <label>Brand email</label>
-                      <div className="val">{b.brand_email ? <a href={`mailto:${b.brand_email}`}>{b.brand_email}</a> : <span className="null">not found</span>}</div>
-                    </div>
-                    <div className="detail-box">
-                      <label>Parent company</label>
-                      <div className="val">{b.parent_company || <span className="null">none</span>}</div>
-                    </div>
-                    <div className="detail-box">
-                      <label>Parent email</label>
-                      <div className="val">{b.parent_email || b.parent_company_email ? <a href={`mailto:${b.parent_email || b.parent_company_email}`}>{b.parent_email || b.parent_company_email}</a> : <span className="null">not found</span>}</div>
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: '16px', marginBottom: '16px' }}>
-                    <button 
-                      className="btn-process"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleSendEmail(uId);
-                      }}
-                      disabled={isEmailActionDisabled}
-                    >
-                      {emailingBrands[uId] ? 'Sending...' : b.email_sent ? 'Email Already Sent' : 'Send Email via n8n'}
-                    </button>
-                  </div>
-
-                  {distCount > 0 ? (
-                    <>
-                      <div className="section-title">Distributors ({distCount})</div>
-                      <div className="dist-list">
-                        {b.distributors.map((d, i) => (
-                          <div key={i} className="dist-row">
-                            <div>
-                              <div className="dist-name">{d.name}</div>
-                              <div className="dist-loc">{[d.city, d.state, d.country].filter(Boolean).join(', ') || '—'}</div>
-                            </div>
-                            <div>
-                              {d.official ? <span className="badge green">official</span> : <span className="badge gray">unverified</span>}
-                            </div>
-                            <div className="dist-contact">
-                              {d.email && <><a href={`mailto:${d.email}`}>{d.email}</a><br/></>}
-                              {d.phone && <span>{d.phone}</span>}
-                            </div>
-                            <div className="conf-bar">
-                              <div className="conf-bg">
-                                <div className="conf-fill" style={{ width: `${d.confidence || 0}%`, background: getConfColor(d.confidence) }}></div>
-                              </div>
-                              <span className="conf-text">{d.confidence || 0}%</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>No distributors found for this brand.</div>
-                  )}
-                </div>
-              )}
-            </div>
+              <div className="brand-list-card__meta">
+                <span className={`badge ${b.distributors_found ? 'green' : 'gray'}`}>{b.distributors_found ? `${distCount} distributor${distCount !== 1 ? 's' : ''}` : 'No distributors'}</span>
+                <span className={`badge ${b.emails_found ? 'blue' : 'gray'}`}>{b.emails_found ? 'Email found' : 'No email'}</span>
+                <span className={`badge ${b.email_sent ? 'purple' : 'gray'}`}>{b.email_sent ? 'Email sent' : 'Not sent'}</span>
+                <span className="brand-date">{b.processed_at ? new Date(b.processed_at).toLocaleDateString() : 'Just now'}</span>
+              </div>
+            </button>
           );
         })}
       </div>
+
+      {!loading && !error && totalBrands > 0 && (
+        <div className="pagination-bar surface-card">
+          <div className="pagination-summary">Page {currentPage} of {totalPages}</div>
+          <div className="pagination-actions">
+            <button className="btn-primary btn-secondary" disabled={currentPage === 1 || loading} onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}>
+              Previous
+            </button>
+            <button className="btn-primary btn-secondary" disabled={currentPage >= totalPages || loading} onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}>
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+
+      {selectedBrand && (
+        <>
+          <div className="detail-backdrop" onClick={() => setSelectedBrand(null)} />
+          <aside className="detail-panel">
+            <div className="detail-panel__header">
+              <div>
+                <span className="eyebrow">Brand details</span>
+                <h3>{selectedBrand.brand}</h3>
+                <p>{selectedBrand.country}{selectedBrand.parent_company ? ` - ${selectedBrand.parent_company}` : ''}</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setSelectedBrand(null)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="detail-panel__badges">
+              <span className={`badge ${selectedBrand.distributors_found ? 'green' : 'gray'}`}>{selectedBrand.distributors_found ? `${selectedBrand.distributors?.length || 0} distributors` : 'No distributors'}</span>
+              <span className={`badge ${selectedBrand.emails_found ? 'blue' : 'gray'}`}>{selectedBrand.emails_found ? 'Email found' : 'No email'}</span>
+              <span className={`badge ${selectedBrand.email_sent ? 'purple' : 'gray'}`}>{selectedBrand.email_sent ? 'Email sent' : 'Not sent'}</span>
+            </div>
+
+            <div className="detail-stack">
+              <div className="detail-group">
+                <div className="detail-group__title"><Globe size={16} /> Contact surfaces</div>
+                <div className="detail-grid detail-grid--panel">
+                  <div className="detail-box">
+                    <label>Official website</label>
+                    <div className="val">{selectedBrand.official_website ? <a href={selectedBrand.official_website} target="_blank" rel="noreferrer">{selectedBrand.official_website}</a> : <span className="null">Not found</span>}</div>
+                  </div>
+                  <div className="detail-box">
+                    <label>Brand contact page</label>
+                    <div className="val">{selectedBrand.brand_contact_page ? <a href={selectedBrand.brand_contact_page} target="_blank" rel="noreferrer">{selectedBrand.brand_contact_page}</a> : <span className="null">Not found</span>}</div>
+                  </div>
+                  <div className="detail-box">
+                    <label>Parent contact page</label>
+                    <div className="val">{selectedBrand.parent_company_contact_page ? <a href={selectedBrand.parent_company_contact_page} target="_blank" rel="noreferrer">{selectedBrand.parent_company_contact_page}</a> : <span className="null">Not found</span>}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="detail-group">
+                <div className="detail-group__title"><Phone size={16} /> Contact details</div>
+                <div className="detail-grid detail-grid--panel">
+                  <div className="detail-box">
+                    <label>Primary email</label>
+                    <div className="val">{selectedBrandPrimaryEmail ? <a href={`mailto:${selectedBrandPrimaryEmail}`}>{selectedBrandPrimaryEmail}</a> : <span className="null">Not found</span>}</div>
+                  </div>
+                  <div className="detail-box">
+                    <label>Brand phone</label>
+                    <div className="val">{selectedBrand.brand_phone ? <a href={`tel:${selectedBrand.brand_phone}`}>{selectedBrand.brand_phone}</a> : <span className="null">Not found</span>}</div>
+                  </div>
+                  <div className="detail-box">
+                    <label>Parent company phone</label>
+                    <div className="val">{selectedBrand.parent_company_phone ? <a href={`tel:${selectedBrand.parent_company_phone}`}>{selectedBrand.parent_company_phone}</a> : <span className="null">Not found</span>}</div>
+                  </div>
+                  <div className="detail-box">
+                    <label>All brand emails</label>
+                    <div className="val detail-list-inline">
+                      {(selectedBrand.all_brand_emails || selectedBrand.brand_emails || []).length > 0
+                        ? (selectedBrand.all_brand_emails || selectedBrand.brand_emails).map((email) => (
+                            <a key={email} href={`mailto:${email}`}>{email}</a>
+                          ))
+                        : <span className="null">Not found</span>}
+                    </div>
+                  </div>
+                  <div className="detail-box">
+                    <label>Parent company email</label>
+                    <div className="val">{selectedBrand.parent_company_email ? <a href={`mailto:${selectedBrand.parent_company_email}`}>{selectedBrand.parent_company_email}</a> : <span className="null">Not found</span>}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="detail-group">
+                <div className="detail-group__title"><Building2 size={16} /> Outreach</div>
+                <div className="detail-action-card">
+                  <div>
+                    <h4>Send distributor verification email</h4>
+                    <p>Use the best available brand or parent-company contact email from this research record.</p>
+                  </div>
+                  <button
+                    className="btn-primary"
+                    onClick={() => handleSendEmail(selectedBrand._id || selectedBrand.id)}
+                    disabled={emailingBrands[selectedBrand._id || selectedBrand.id] || selectedBrand.email_sent}
+                  >
+                    {emailingBrands[selectedBrand._id || selectedBrand.id]
+                      ? 'Sending...'
+                      : selectedBrand.email_sent
+                        ? 'Email Already Sent'
+                        : 'Send Email'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="detail-group">
+                <div className="detail-group__title"><ExternalLink size={16} /> Distributors</div>
+                {(selectedBrand.distributors || []).length > 0 ? (
+                  <div className="dist-list dist-list--panel">
+                    {selectedBrand.distributors.map((d, i) => (
+                      <div key={i} className="dist-row dist-row--panel">
+                        <div>
+                          <div className="dist-name">{d.name}</div>
+                          <div className="dist-loc">{[d.city, d.state, d.country].filter(Boolean).join(', ') || 'Location not found'}</div>
+                        </div>
+                        <div className="dist-side-block">
+                          <span className={`badge ${d.official ? 'green' : 'gray'}`}>{d.official ? 'Official' : 'Unverified'}</span>
+                          <div className="dist-contact">
+                            {d.email && <a href={`mailto:${d.email}`}>{d.email}</a>}
+                            {d.phone && <a href={`tel:${d.phone}`}>{d.phone}</a>}
+                          </div>
+                        </div>
+                        <div className="conf-bar conf-bar--panel">
+                          <div className="conf-bg">
+                            <div className="conf-fill" style={{ width: `${d.confidence || 0}%`, background: getConfColor(d.confidence || 0) }}></div>
+                          </div>
+                          <span className="conf-text">{d.confidence || 0}%</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty-inline">No distributors found for this brand.</div>
+                )}
+              </div>
+            </div>
+          </aside>
+        </>
+      )}
     </div>
   );
 }
