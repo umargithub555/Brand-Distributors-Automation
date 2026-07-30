@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { CheckCircle, Loader, Play, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { AlertCircle, CheckCircle, Loader, Play, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 
 function Processing({ apiUrl }) {
   const [brands, setBrands] = useState([]);
@@ -135,9 +135,17 @@ function Processing({ apiUrl }) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || `HTTP ${res.status}`);
       }
-      showToast(`"${brand.brand}" processing started.`);
+      const payload = await res.json();
+      showToast(payload.message || `"${brand.brand}" queued for processing.`);
       setBrands((prev) => prev.map((item) => (
-        (item._id || item.id) === brandId ? { ...item, processed: true } : item
+        (item._id || item.id) === brandId
+          ? {
+              ...item,
+              processed: false,
+              processing_status: payload.status || 'queued',
+              processing_error: null,
+            }
+          : item
       )));
     } catch (err) {
       showToast('Failed to trigger: ' + err.message, 'error');
@@ -146,14 +154,37 @@ function Processing({ apiUrl }) {
   };
 
   const handleProcessAll = async () => {
-    const pending = brands.filter((brand) => !brand.processed);
-    for (const brand of pending) {
+    const actionable = brands.filter((brand) => {
+      const status = brand.processing_status || (brand.processed ? 'completed' : 'idle');
+      return !brand.processed && !['queued', 'running'].includes(status);
+    });
+    for (const brand of actionable) {
       const id = brand._id || brand.id;
       await handleProcess(id);
     }
   };
 
-  const pendingCount = brands.filter((brand) => !brand.processed).length;
+  const getProcessingState = (brand) => {
+    if (brand.processed) {
+      return { label: 'Processed', tone: 'green', actionable: false };
+    }
+
+    const status = brand.processing_status || 'idle';
+    if (status === 'queued') {
+      return { label: 'Queued', tone: 'blue', actionable: false };
+    }
+    if (status === 'running') {
+      return { label: 'Running', tone: 'amber', actionable: false };
+    }
+    if (status === 'failed') {
+      return { label: 'Failed', tone: 'red', actionable: true };
+    }
+    return { label: 'Pending', tone: 'gray', actionable: true };
+  };
+
+  const pageStates = brands.map(getProcessingState);
+  const pendingCount = pageStates.filter((state) => state.label === 'Pending' || state.label === 'Failed').length;
+  const activeCount = pageStates.filter((state) => state.label === 'Queued' || state.label === 'Running').length;
   const processedCount = brands.filter((brand) => brand.processed).length;
   const totalPages = Math.max(1, Math.ceil(totalBrands / PAGE_SIZE));
 
@@ -179,12 +210,12 @@ function Processing({ apiUrl }) {
           <div className="stat-value blue">{totalBrands}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Pending on Page</div>
+          <div className="stat-label">Waiting or Failed</div>
           <div className="stat-value amber">{pendingCount}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Processed on Page</div>
-          <div className="stat-value green">{processedCount}</div>
+          <div className="stat-label">Queued or Running</div>
+          <div className="stat-value purple">{activeCount}</div>
         </div>
       </div>
 
@@ -268,8 +299,9 @@ function Processing({ apiUrl }) {
         {!loadingQueue && brands.map((brand) => {
           const id = brand._id || brand.id;
           const isProcessing = processingId === id;
-          const isProcessed = brand.processed === true;
           const isDeleting = deletingId === id;
+          const state = getProcessingState(brand);
+          const isActionable = state.actionable && !isDeleting && !isProcessing;
 
           return (
             <div key={id} className="brand-list-card brand-list-card--queue">
@@ -278,24 +310,32 @@ function Processing({ apiUrl }) {
                 <div>
                   <div className="brand-name">{brand.brand}</div>
                   <div className="brand-country">{brand.country || 'USA'}</div>
+                  {brand.processing_error && state.label === 'Failed' && (
+                    <div className="queue-error-inline">
+                      <AlertCircle size={12} /> {brand.processing_error}
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div className="brand-list-card__meta brand-list-card__meta--queue">
-                <span className={`badge ${isProcessed ? 'green' : 'gray'}`}>{isProcessed ? 'Processed' : 'Pending'}</span>
-                {!isProcessed && (
+                <span className={`badge ${state.tone}`}>{state.label}</span>
+                {state.label === 'Running' && (
+                  <span className="queue-running-indicator"><Loader size={13} className="spin-inline" /> In progress</span>
+                )}
+                {isActionable && (
                   <button
                     className="btn-primary"
                     onClick={() => handleProcess(id)}
-                    disabled={processingId !== null || isDeleting}
+                    disabled={!isActionable}
                   >
-                    {isProcessing ? <><Loader size={13} className="spin-inline" /> Processing...</> : <><Play size={13} /> Process</>}
+                    {isProcessing ? <><Loader size={13} className="spin-inline" /> Queueing...</> : <><Play size={13} /> {state.label === 'Failed' ? 'Retry' : 'Process'}</>}
                   </button>
                 )}
                 <button
                   className="btn-primary btn-danger"
                   onClick={() => handleDelete(id, brand.brand)}
-                  disabled={isDeleting || isProcessing}
+                  disabled={isDeleting || isProcessing || state.label === 'Running'}
                 >
                   {isDeleting ? <><Loader size={13} className="spin-inline" /> Deleting...</> : <><Trash2 size={13} /> Delete</>}
                 </button>

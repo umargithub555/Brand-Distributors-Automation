@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Loader, UploadCloud } from 'lucide-react';
+import { FileSpreadsheet, Loader, UploadCloud } from 'lucide-react';
 
 function Upload({ apiUrl }) {
   const [dragActive, setDragActive] = useState(false);
@@ -80,40 +80,71 @@ function Upload({ apiUrl }) {
   };
 
   return (
-    <div className="page-shell page-shell--narrow">
+    <div className="page-shell page-shell--narrow upload-page">
       {message && (
         <div className={`toast-banner ${message.type === 'error' ? 'error' : 'success'}`}>
           {message.text}
         </div>
       )}
 
-      <section className="page-hero page-hero--compact">
+      <section className="upload-header">
         <div>
           <span className="eyebrow">CSV import</span>
-          <h2 className="page-title">Upload brands into the research queue</h2>
-          <p className="page-subtitle">This page is dedicated to import only. Queue management and processing controls live in the Processing Queue page.</p>
+          <h2 className="upload-header__title">Import brands</h2>
+          <p className="upload-header__subtitle">Upload a CSV to add brands into the processing queue.</p>
+        </div>
+        <div className="upload-format-card">
+          <div className="upload-format-card__icon">
+            <FileSpreadsheet size={18} />
+          </div>
+          <div>
+            <strong>Expected columns</strong>
+            <div className="upload-format-chips">
+              <span className="upload-format-chip">brand_name</span>
+              <span className="upload-format-chip">country</span>
+            </div>
+          </div>
         </div>
       </section>
 
-      <div
-        className={`upload-surface ${dragActive ? 'drag-active' : ''}`}
-        onDragEnter={handleDrag}
-        onDragLeave={handleDrag}
-        onDragOver={handleDrag}
-        onDrop={handleDrop}
-      >
-        <div className="upload-surface__icon">
-          <UploadCloud size={42} />
+      <section className="upload-workspace surface-card">
+        <div
+          className={`upload-dropzone ${dragActive ? 'drag-active' : ''}`}
+          onDragEnter={handleDrag}
+          onDragLeave={handleDrag}
+          onDragOver={handleDrag}
+          onDrop={handleDrop}
+        >
+          <div className="upload-dropzone__icon">
+            <UploadCloud size={30} />
+          </div>
+          <div className="upload-dropzone__content">
+            <h3>Drop CSV here</h3>
+            <p>Only CSV files are accepted for queue import.</p>
+          </div>
+          <div className="file-input-wrapper">
+            <button className="btn-primary" disabled={uploading}>
+              {uploading ? <><Loader size={14} className="spin-inline" /> Uploading...</> : 'Choose CSV'}
+            </button>
+            <input type="file" accept=".csv" onChange={handleChange} disabled={uploading} />
+          </div>
         </div>
-        <h3>Drop your brand CSV here</h3>
-        <p>Accepted format: header row with <strong>brand_name</strong> and optional <strong>country</strong>.</p>
-        <div className="file-input-wrapper">
-          <button className="btn-primary" disabled={uploading}>
-            {uploading ? <><Loader size={14} className="spin-inline" /> Uploading...</> : 'Browse CSV'}
-          </button>
-          <input type="file" accept=".csv" onChange={handleChange} disabled={uploading} />
+
+        <div className="upload-notes">
+          <div className="upload-note">
+            <span className="upload-note__label">Format</span>
+            <span className="upload-note__value">Header row required</span>
+          </div>
+          <div className="upload-note">
+            <span className="upload-note__label">Country</span>
+            <span className="upload-note__value">Defaults to USA if blank</span>
+          </div>
+          <div className="upload-note">
+            <span className="upload-note__label">Next step</span>
+            <span className="upload-note__value">Run processing from the queue page</span>
+          </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
