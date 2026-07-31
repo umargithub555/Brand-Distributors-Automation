@@ -1,4 +1,4 @@
-import os
+﻿import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -16,6 +16,7 @@ class Settings:
     mongo_db_name: str
     brand_gemini_api_key: str
     research_model: str
+    structuring_model: str
     research_timeout_seconds: float
     structure_timeout_seconds: float
     smtp_host: str | None
@@ -26,6 +27,10 @@ class Settings:
     smtp_from_name: str
     smtp_use_tls: bool
     smtp_use_ssl: bool
+    redis_url: str
+    outreach_send_delay_seconds: int
+    outreach_retry_delay_seconds: int
+    outreach_max_attempts: int
 
 
 def _to_bool(value: str | None, default: bool) -> bool:
@@ -40,8 +45,9 @@ def get_settings() -> Settings:
         app_name=os.getenv('APP_NAME', 'Brand Intelligence API'),
         mongo_url=os.getenv('MONGO_URL', ''),
         mongo_db_name=os.getenv('MONGO_DB_NAME', 'BrandsDB'),
-        brand_gemini_api_key=os.getenv('BRAND_GEMINI_API_KEY', ''),
-        research_model=os.getenv('RESEARCH_MODEL', 'gemini-2.5-flash'),
+        brand_gemini_api_key=os.getenv('COMPANY_GEMINI_API_KEY', ''),
+        research_model=os.getenv('RESEARCH_MODEL', 'gemini-3-flash-preview'),
+        structuring_model=os.getenv('STRUCTURING_MODEL', 'gemini-3.1-flash-lite'),
         research_timeout_seconds=float(os.getenv('RESEARCH_TIMEOUT_SECONDS', '150')),
         structure_timeout_seconds=float(os.getenv('STRUCTURE_TIMEOUT_SECONDS', '150')),
         smtp_host=os.getenv('SMTP_HOST'),
@@ -52,4 +58,8 @@ def get_settings() -> Settings:
         smtp_from_name=os.getenv('SMTP_FROM_NAME', 'Brand Intelligence'),
         smtp_use_tls=_to_bool(os.getenv('SMTP_USE_TLS'), True),
         smtp_use_ssl=_to_bool(os.getenv('SMTP_USE_SSL'), False),
+        redis_url=os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
+        outreach_send_delay_seconds=int(os.getenv('OUTREACH_SEND_DELAY_SECONDS', '45')),
+        outreach_retry_delay_seconds=int(os.getenv('OUTREACH_RETRY_DELAY_SECONDS', '300')),
+        outreach_max_attempts=int(os.getenv('OUTREACH_MAX_ATTEMPTS', '3')),
     )

@@ -1,4 +1,4 @@
-from typing import List, Optional
+﻿from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -17,6 +17,10 @@ class BulkUploadRequest(BaseModel):
     brands: List[BrandUploadItem]
 
 
+class BrandProcessingTriggerRequest(BaseModel):
+    research_mode: str = Field(default='detailed', description="Brand research mode: 'detailed' for staged research or 'short' for the legacy single-pass flow")
+
+
 class Distributor(BaseModel):
     name: str = Field(description='Distributor, commercial wholesaler, or regional supplier company name')
     website: Optional[str] = None
@@ -30,6 +34,35 @@ class Distributor(BaseModel):
     official: bool = Field(description='True if verified as an authorized/commercial supplier, false if a secondary general wholesaler')
     source: Optional[str] = None
     confidence: int = Field(ge=0, le=100)
+
+
+class EditableDistributor(BaseModel):
+    name: str
+    website: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    contact_page: Optional[str] = None
+    official: bool = False
+    source: Optional[str] = None
+    confidence: int = Field(default=50, ge=0, le=100)
+
+
+class BrandUpdateRequest(BaseModel):
+    brand: str
+    country: str = 'USA'
+    parent_company: Optional[str] = None
+    official_website: Optional[str] = None
+    brand_contact_page: Optional[str] = None
+    parent_company_contact_page: Optional[str] = None
+    brand_phone: Optional[str] = None
+    brand_emails: List[str] = Field(default_factory=list)
+    parent_company_email: Optional[str] = None
+    parent_company_email_type: Optional[str] = None
+    distributors: List[EditableDistributor] = Field(default_factory=list)
 
 
 class ResearchStepMetrics(BaseModel):
@@ -141,3 +174,101 @@ class ColdOutreachTargetResponse(BaseModel):
     targets: List[ColdOutreachTarget] = Field(default_factory=list)
     notes: Optional[str] = None
     research_metrics: Optional[ResearchRunMetrics] = None
+
+
+class BrandEmailDraftPreview(BaseModel):
+    brand_id: str
+    brand_name: str
+    to_email: str
+    email_type: str
+    subject: str
+    body: str
+
+
+class BrandEmailSendRequest(BaseModel):
+    to_email: str
+    subject: str
+    body: str
+
+
+class DistributorOutreachDraftItem(BaseModel):
+    distributor_name: str
+    to_email: Optional[str] = None
+    subject: str
+    body: str
+    status: str = 'ready'
+    reason: Optional[str] = None
+
+
+class DistributorOutreachDraftPreview(BaseModel):
+    brand_id: str
+    brand_name: str
+    total_targets: int
+    ready_targets: int
+    missing_email_targets: int
+    drafts: List[DistributorOutreachDraftItem] = Field(default_factory=list)
+
+
+class DistributorOutreachApproveRequest(BaseModel):
+    drafts: List[DistributorOutreachDraftItem] = Field(default_factory=list)
+
+
+class SMTPSettingsUpdateRequest(BaseModel):
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = Field(default=None, ge=1, le=65535)
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_from_email: Optional[str] = None
+    smtp_from_name: Optional[str] = None
+    smtp_use_tls: Optional[bool] = None
+    smtp_use_ssl: Optional[bool] = None
+    clear_password: bool = False
+
+
+class SMTPSettingsResponse(BaseModel):
+    smtp_host: str = ''
+    smtp_port: int = 587
+    smtp_username: str = ''
+    smtp_from_email: str = ''
+    smtp_from_name: str = ''
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
+    has_password: bool = False
+    password_source: str = 'unset'
+    updated_at: Optional[str] = None
+
+
+class DistributorOutreachCampaignResponse(BaseModel):
+    campaign_id: str
+    brand_id: str
+    brand_name: str
+    status: str
+    queued_targets: int
+    skipped_targets: int
+    total_targets: int
+
+
+class DistributorOutreachTargetStatus(BaseModel):
+    target_id: str
+    distributor_name: str
+    email: Optional[str] = None
+    status: str
+    attempt_count: int = 0
+    last_error: Optional[str] = None
+    scheduled_for: Optional[str] = None
+    sent_at: Optional[str] = None
+
+
+class DistributorOutreachCampaignDetail(BaseModel):
+    campaign_id: str
+    brand_id: str
+    brand_name: str
+    status: str
+    total_targets: int
+    queued_targets: int
+    sent_targets: int
+    failed_targets: int
+    skipped_targets: int
+    created_at: str
+    updated_at: Optional[str] = None
+    targets: List[DistributorOutreachTargetStatus] = Field(default_factory=list)
