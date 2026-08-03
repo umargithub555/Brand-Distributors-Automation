@@ -19,17 +19,20 @@ def email_activity_summary():
 @router.get('/email-activity/brand-emails')
 def get_brand_email_activity(
     q: Optional[str] = None,
+    success: Optional[bool] = None,
+    error_type: Optional[str] = None,
     skip: int = 0,
     limit: int = 20,
 ):
-    return list_brand_email_activity(q, skip, limit)
+    return list_brand_email_activity(q, success, error_type, skip, limit)
 
 
 @router.get('/email-activity/distributor-attempts')
 def get_distributor_email_activity(
     q: Optional[str] = None,
     success: Optional[bool] = None,
+    error_type: Optional[str] = None,
     skip: int = 0,
     limit: int = 20,
 ):
-    return list_distributor_email_activity(q, success, skip, limit)
+    return list_distributor_email_activity(q, success, error_type, skip, limit)

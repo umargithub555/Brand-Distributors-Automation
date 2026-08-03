@@ -5,10 +5,12 @@ from bson import ObjectId
 from fastapi import HTTPException
 
 from backend.core.database import db
-from backend.models.schemas import BulkUploadRequest, DistributorRequest, Output
+from backend.models.schemas import BrandUpdateRequest, BulkUploadRequest, DistributorRequest, Output
 from backend.services.research import find_distributors
 from backend.utils.mongo import encode_document
 from backend.utils.query import build_search_query
+
+VALID_RESEARCH_MODES = {'detailed', 'short'}
 
 
 async def list_processed_brands(email_sent, distributors_found, emails_found, q, skip, limit):
@@ -76,6 +78,7 @@ def bulk_upload_brands(payload: BulkUploadRequest):
             'country': item.country,
             'processed': False,
             'processing_status': 'idle',
+            'processing_research_mode': 'detailed',
             'created_at': datetime.now(timezone.utc).isoformat(),
         }
         result = db['Brands'].insert_one(doc)
@@ -112,6 +115,38 @@ def delete_brand(brand_id: str):
     return {'success': True, 'brand_id': brand_id}
 
 
+def update_brand_details(brand_id: str, payload: BrandUpdateRequest):
+    oid, brand = _get_brand_or_404(brand_id)
+
+    distributors = [item.model_dump() for item in payload.distributors]
+    brand_emails = [email.strip() for email in payload.brand_emails if email and email.strip()]
+    brand_email = brand_emails[0] if brand_emails else None
+    parent_email = payload.parent_company_email.strip() if payload.parent_company_email else None
+
+    update_doc = {
+        'brand': payload.brand.strip(),
+        'country': payload.country.strip() or 'USA',
+        'parent_company': payload.parent_company.strip() if payload.parent_company else None,
+        'official_website': payload.official_website.strip() if payload.official_website else None,
+        'brand_contact_page': payload.brand_contact_page.strip() if payload.brand_contact_page else None,
+        'parent_company_contact_page': payload.parent_company_contact_page.strip() if payload.parent_company_contact_page else None,
+        'brand_phone': payload.brand_phone.strip() if payload.brand_phone else None,
+        'all_brand_emails': brand_emails,
+        'brand_emails': brand_emails,
+        'brand_email': brand_email,
+        'parent_company_email': parent_email,
+        'parent_company_email_type': payload.parent_company_email_type.strip() if payload.parent_company_email_type else None,
+        'distributors': distributors,
+        'distributors_found': len(distributors) > 0,
+        'emails_found': brand_email is not None or parent_email is not None,
+        'updated_at': datetime.now(timezone.utc).isoformat(),
+    }
+
+    db['Brands'].update_one({'_id': oid}, {'$set': update_doc})
+    updated = db['Brands'].find_one({'_id': oid}) or brand
+    return encode_document(updated)
+
+
 def mark_brand_processed(brand_id: str):
     try:
         oid = ObjectId(brand_id)
@@ -133,7 +168,7 @@ def mark_brand_processed(brand_id: str):
     return {'success': True, 'brand_id': brand_id}
 
 
-def _flatten_research_result(brand_id: str, output: Output) -> dict:
+def _flatten_research_result(brand_id: str, output: Output, research_mode: str) -> dict:
     distributors = output.distributors or []
     brand_emails = output.brand_emails or []
     brand_email = brand_emails[0] if brand_emails else None
@@ -155,6 +190,7 @@ def _flatten_research_result(brand_id: str, output: Output) -> dict:
         'processed': True,
         'processing_status': 'completed',
         'processing_error': None,
+        'processing_research_mode': research_mode,
         'processed_at': datetime.now(timezone.utc).isoformat(),
         'research_metrics': output.research_metrics.model_dump() if output.research_metrics else None,
     }
@@ -172,7 +208,11 @@ def _get_brand_or_404(brand_id: str):
     return oid, brand
 
 
-def queue_brand_processing(brand_id: str):
+def queue_brand_processing(brand_id: str, research_mode: str = 'detailed'):
+    research_mode = (research_mode or 'detailed').strip().lower()
+    if research_mode not in VALID_RESEARCH_MODES:
+        raise HTTPException(status_code=400, detail=f'Invalid research_mode: {research_mode}')
+
     oid, brand = _get_brand_or_404(brand_id)
 
     processing_status = brand.get('processing_status')
@@ -182,6 +222,7 @@ def queue_brand_processing(brand_id: str):
             'brand_id': brand_id,
             'brand_name': brand['brand'],
             'status': processing_status,
+            'research_mode': brand.get('processing_research_mode', research_mode),
             'message': f'Brand processing is already {processing_status}.',
         }
 
@@ -192,6 +233,7 @@ def queue_brand_processing(brand_id: str):
                 'processed': False,
                 'processing_status': 'queued',
                 'processing_error': None,
+                'processing_research_mode': research_mode,
                 'processing_requested_at': datetime.now(timezone.utc).isoformat(),
             },
             '$unset': {'processed_at': ''},
@@ -202,12 +244,14 @@ def queue_brand_processing(brand_id: str):
         'brand_id': brand_id,
         'brand_name': brand['brand'],
         'status': 'queued',
-        'message': 'Brand processing queued successfully.',
+        'research_mode': research_mode,
+        'message': f'Brand processing queued successfully using {research_mode} mode.',
     }
 
 
 async def process_brand_in_background(brand_id: str):
     oid, brand = _get_brand_or_404(brand_id)
+    research_mode = brand.get('processing_research_mode', 'detailed')
 
     db['Brands'].update_one(
         {'_id': oid},
@@ -217,15 +261,17 @@ async def process_brand_in_background(brand_id: str):
                 'processing_status': 'running',
                 'processing_started_at': datetime.now(timezone.utc).isoformat(),
                 'processing_error': None,
+                'processing_research_mode': research_mode,
             }
         },
     )
 
     try:
         output = await find_distributors(
-            DistributorRequest(brand=brand['brand'], country=brand.get('country', 'USA'))
+            DistributorRequest(brand=brand['brand'], country=brand.get('country', 'USA')),
+            research_mode=research_mode,
         )
-        update_doc = _flatten_research_result(brand_id, output)
+        update_doc = _flatten_research_result(brand_id, output, research_mode)
         update_doc['processing_completed_at'] = datetime.now(timezone.utc).isoformat()
         db['Brands'].update_one({'_id': oid}, {'$set': update_doc})
     except Exception as exc:
@@ -237,6 +283,7 @@ async def process_brand_in_background(brand_id: str):
                     'processed': False,
                     'processing_status': 'failed',
                     'processing_error': error_message,
+                    'processing_research_mode': research_mode,
                     'processing_completed_at': datetime.now(timezone.utc).isoformat(),
                 }
             },
