@@ -2,6 +2,18 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle, Loader, Play, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 
 const PAGE_SIZE = 10;
+const RESEARCH_MODE_OPTIONS = [
+  {
+    value: 'detailed',
+    label: 'Detailed research',
+    helper: 'Staged brand profile, distributor discovery, and enrichment. Higher quality, higher cost.',
+  },
+  {
+    value: 'short',
+    label: 'Short research',
+    helper: 'Legacy single-pass grounded research. Faster and cheaper, but usually less complete.',
+  },
+];
 
 function Processing({ apiUrl }) {
   const [brands, setBrands] = useState([]);
@@ -13,10 +25,13 @@ function Processing({ apiUrl }) {
   const [addingBrand, setAddingBrand] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [processingId, setProcessingId] = useState(null);
+  const [processingAll, setProcessingAll] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalBrands, setTotalBrands] = useState(0);
+  const [researchMode, setResearchMode] = useState('detailed');
+  const [confirmDelete, setConfirmDelete] = useState({ open: false, brandId: null, brandName: '' });
 
   const apiBase = apiUrl.replace(/\/$/, '');
 
@@ -101,10 +116,15 @@ function Processing({ apiUrl }) {
     setAddingBrand(false);
   };
 
-  const handleDelete = async (brandId, brandName) => {
-    const confirmed = window.confirm(`Delete "${brandName}" from the queue?`);
-    if (!confirmed) return;
+  const requestDelete = (brandId, brandName) => {
+    setConfirmDelete({ open: true, brandId, brandName });
+  };
 
+  const closeDeleteDialog = () => {
+    setConfirmDelete({ open: false, brandId: null, brandName: '' });
+  };
+
+  const handleDelete = async (brandId, brandName) => {
     setDeletingId(brandId);
     try {
       const res = await fetch(`${apiBase}/brands/${brandId}`, { method: 'DELETE' });
@@ -122,15 +142,20 @@ function Processing({ apiUrl }) {
       showToast('Delete failed: ' + err.message, 'error');
     }
     setDeletingId(null);
+    closeDeleteDialog();
   };
 
-  const handleProcess = async (brandId) => {
+  const handleProcess = async (brandId, mode = researchMode) => {
     const brand = brands.find((item) => (item._id || item.id) === brandId);
     if (!brand) return;
 
     setProcessingId(brandId);
     try {
-      const res = await fetch(`${apiBase}/brands/${brandId}/trigger`, { method: 'POST' });
+      const res = await fetch(`${apiBase}/brands/${brandId}/trigger`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ research_mode: mode }),
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || `HTTP ${res.status}`);
@@ -144,6 +169,7 @@ function Processing({ apiUrl }) {
               processed: false,
               processing_status: payload.status || 'queued',
               processing_error: null,
+              processing_research_mode: payload.research_mode || mode,
             }
           : item
       )));
@@ -158,9 +184,49 @@ function Processing({ apiUrl }) {
       const status = brand.processing_status || (brand.processed ? 'completed' : 'idle');
       return !brand.processed && !['queued', 'running'].includes(status);
     });
-    for (const brand of actionable) {
-      const id = brand._id || brand.id;
-      await handleProcess(id);
+
+    if (actionable.length === 0) {
+      showToast('There are no pending brands on this page to queue.', 'error');
+      return;
+    }
+
+    setProcessingAll(true);
+    try {
+      const brandIds = actionable.map((brand) => brand._id || brand.id);
+      const res = await fetch(`${apiBase}/brands/trigger-bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_ids: brandIds, research_mode: researchMode }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload.detail || `HTTP ${res.status}`);
+      }
+
+      const queuedIds = new Set(
+        (payload.results || [])
+          .filter((item) => item.status === 'queued')
+          .map((item) => item.brand_id),
+      );
+
+      setBrands((prev) => prev.map((item) => {
+        const currentId = item._id || item.id;
+        if (!queuedIds.has(currentId)) return item;
+        return {
+          ...item,
+          processed: false,
+          processing_status: 'queued',
+          processing_error: null,
+          processing_research_mode: payload.research_mode || researchMode,
+        };
+      }));
+
+      showToast(payload.message || `Queued ${queuedIds.size} brand(s) for processing.`);
+      await loadQueue();
+    } catch (err) {
+      showToast('Bulk queue failed: ' + err.message, 'error');
+    } finally {
+      setProcessingAll(false);
     }
   };
 
@@ -185,8 +251,8 @@ function Processing({ apiUrl }) {
   const pageStates = brands.map(getProcessingState);
   const pendingCount = pageStates.filter((state) => state.label === 'Pending' || state.label === 'Failed').length;
   const activeCount = pageStates.filter((state) => state.label === 'Queued' || state.label === 'Running').length;
-  const processedCount = brands.filter((brand) => brand.processed).length;
   const totalPages = Math.max(1, Math.ceil(totalBrands / PAGE_SIZE));
+  const selectedModeMeta = RESEARCH_MODE_OPTIONS.find((option) => option.value === researchMode);
 
   return (
     <div className="page-shell">
@@ -257,6 +323,17 @@ function Processing({ apiUrl }) {
               onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
+          <div className="processing-mode-card">
+            <div>
+              <div className="processing-mode-card__title">Brand research mode</div>
+              <p className="processing-mode-card__helper">{selectedModeMeta?.helper}</p>
+            </div>
+            <select value={researchMode} onChange={(e) => setResearchMode(e.target.value)} className="form-select">
+              {RESEARCH_MODE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </div>
           <div className="toolbar-actions">
             <select value={queueFilter} onChange={(e) => setQueueFilter(e.target.value)} className="form-select">
               <option value="all">All Brands</option>
@@ -267,8 +344,8 @@ function Processing({ apiUrl }) {
               <RefreshCw size={14} className={loadingQueue ? 'spin-inline' : ''} /> Refresh
             </button>
             {pendingCount > 0 && (
-              <button className="btn-primary" onClick={handleProcessAll} disabled={processingId !== null}>
-                <Play size={14} /> Process All
+              <button className="btn-primary" onClick={handleProcessAll} disabled={processingId !== null || processingAll}>
+                {processingAll ? <><Loader size={14} className="spin-inline" /> Queueing All...</> : <><Play size={14} /> Process All</>}
               </button>
             )}
           </div>
@@ -302,6 +379,7 @@ function Processing({ apiUrl }) {
           const isDeleting = deletingId === id;
           const state = getProcessingState(brand);
           const isActionable = state.actionable && !isDeleting && !isProcessing;
+          const modeLabel = brand.processing_research_mode === 'short' ? 'Short mode' : 'Detailed mode';
 
           return (
             <div key={id} className="brand-list-card brand-list-card--queue">
@@ -310,6 +388,7 @@ function Processing({ apiUrl }) {
                 <div>
                   <div className="brand-name">{brand.brand}</div>
                   <div className="brand-country">{brand.country || 'USA'}</div>
+                  <div className="queue-mode-inline">{modeLabel}</div>
                   {brand.processing_error && state.label === 'Failed' && (
                     <div className="queue-error-inline">
                       <AlertCircle size={12} /> {brand.processing_error}
@@ -334,7 +413,7 @@ function Processing({ apiUrl }) {
                 )}
                 <button
                   className="btn-primary btn-danger"
-                  onClick={() => handleDelete(id, brand.brand)}
+                  onClick={() => requestDelete(id, brand.brand)}
                   disabled={isDeleting || isProcessing || state.label === 'Running'}
                 >
                   {isDeleting ? <><Loader size={13} className="spin-inline" /> Deleting...</> : <><Trash2 size={13} /> Delete</>}
@@ -358,6 +437,26 @@ function Processing({ apiUrl }) {
           </div>
         </div>
       )}
+
+      {confirmDelete.open && (
+        <>
+          <div className="composer-backdrop" onClick={closeDeleteDialog} />
+          <section className="confirm-dialog" role="dialog" aria-modal="true">
+            <div className="confirm-dialog__body">
+              <span className="eyebrow">Delete brand</span>
+              <h3>Remove this brand from the queue?</h3>
+              <p><strong>{confirmDelete.brandName}</strong> will be removed from the active queue.</p>
+            </div>
+            <div className="confirm-dialog__footer">
+              <button className="btn-primary btn-secondary" type="button" onClick={closeDeleteDialog} disabled={!!deletingId}>Cancel</button>
+              <button className="btn-primary btn-danger" type="button" onClick={() => handleDelete(confirmDelete.brandId, confirmDelete.brandName)} disabled={!!deletingId}>
+                {deletingId === confirmDelete.brandId ? <><Loader size={13} className="spin-inline" /> Deleting...</> : <><Trash2 size={13} /> Delete</>}
+              </button>
+            </div>
+          </section>
+        </>
+      )}
+
     </div>
   );
 }
