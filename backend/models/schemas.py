@@ -18,7 +18,16 @@ class BulkUploadRequest(BaseModel):
 
 
 class BrandProcessingTriggerRequest(BaseModel):
-    research_mode: str = Field(default='detailed', description="Brand research mode: 'detailed' for staged research or 'short' for the legacy single-pass flow")
+    research_mode: str = Field(default='short', description="Brand research mode: 'detailed' for staged research or 'short' for the legacy single-pass flow")
+
+
+class BrandBulkProcessingTriggerRequest(BaseModel):
+    brand_ids: List[str] = Field(default_factory=list)
+    research_mode: str = Field(default='short', description="Brand research mode: 'detailed' for staged research or 'short' for the legacy single-pass flow")
+
+
+class BrandBulkProcessingCancelRequest(BaseModel):
+    brand_ids: List[str] = Field(default_factory=list)
 
 
 class Distributor(BaseModel):
@@ -27,12 +36,14 @@ class Distributor(BaseModel):
     address: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
+    postal_code: Optional[str] = None
     country: Optional[str] = None
     email: Optional[str] = None
-    phone: Optional[str] = None
-    contact_page: Optional[str] = None
+    email_unavailable_reason: Optional[str] = None
+    phone: Optional[str] = Field(default=None, description='Directly observed public distributor phone number when explicitly present in the research notes')
+    contact_page: Optional[str] = Field(default=None, description='Official distributor contact page URL or support/contact form URL when explicitly present in the research notes')
     official: bool = Field(description='True if verified as an authorized/commercial supplier, false if a secondary general wholesaler')
-    source: Optional[str] = None
+    source: Optional[str] = Field(default=None, description='Best supporting source URL for the distributor relationship or contact details from the research notes')
     confidence: int = Field(ge=0, le=100)
 
 
@@ -42,8 +53,10 @@ class EditableDistributor(BaseModel):
     address: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
+    postal_code: Optional[str] = None
     country: Optional[str] = None
     email: Optional[str] = None
+    email_unavailable_reason: Optional[str] = None
     phone: Optional[str] = None
     contact_page: Optional[str] = None
     official: bool = False
@@ -56,12 +69,17 @@ class BrandUpdateRequest(BaseModel):
     country: str = 'USA'
     parent_company: Optional[str] = None
     official_website: Optional[str] = None
+    brand_address: Optional[str] = None
+    brand_postal_code: Optional[str] = None
     brand_contact_page: Optional[str] = None
     parent_company_contact_page: Optional[str] = None
     brand_phone: Optional[str] = None
+    parent_company_phone: Optional[str] = None
     brand_emails: List[str] = Field(default_factory=list)
+    brand_email_unavailable_reason: Optional[str] = None
     parent_company_email: Optional[str] = None
     parent_company_email_type: Optional[str] = None
+    parent_company_email_unavailable_reason: Optional[str] = None
     distributors: List[EditableDistributor] = Field(default_factory=list)
 
 
@@ -110,6 +128,8 @@ class Output(BaseModel):
     country: str
     parent_company: Optional[str] = None
     official_website: Optional[str] = None
+    brand_address: Optional[str] = None
+    brand_postal_code: Optional[str] = None
     parent_company_email: Optional[str] = None
     parent_company_email_type: Optional[str] = Field(
         default=None,
@@ -121,7 +141,10 @@ class Output(BaseModel):
     )
     brand_contact_page: Optional[str] = None
     brand_emails: Optional[list] = []
+    brand_email_unavailable_reason: Optional[str] = None
     brand_phone: Optional[str] = None
+    parent_company_phone: Optional[str] = None
+    parent_company_email_unavailable_reason: Optional[str] = None
     distributors: List[Distributor] = Field(default_factory=list, description='List of confirmed regional distributors, broad-line suppliers, or wholesalers')
     notes: Optional[str] = None
     research_metrics: Optional[ResearchRunMetrics] = None
@@ -152,6 +175,7 @@ class ColdOutreachTarget(BaseModel):
     website: Optional[str] = None
     contact_page: Optional[str] = None
     email: Optional[str] = None
+    email_unavailable_reason: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
     city: Optional[str] = None
@@ -206,6 +230,7 @@ class DistributorOutreachDraftPreview(BaseModel):
     total_targets: int
     ready_targets: int
     missing_email_targets: int
+    already_sent_targets: int = 0
     drafts: List[DistributorOutreachDraftItem] = Field(default_factory=list)
 
 
@@ -236,6 +261,24 @@ class SMTPSettingsResponse(BaseModel):
     has_password: bool = False
     password_source: str = 'unset'
     updated_at: Optional[str] = None
+
+
+class EmailTemplateBlock(BaseModel):
+    subject: str
+    body: str
+
+
+class EmailTemplatesResponse(BaseModel):
+    brand_with_distributors: EmailTemplateBlock
+    brand_without_distributors: EmailTemplateBlock
+    distributor_outreach: EmailTemplateBlock
+    updated_at: Optional[str] = None
+
+
+class EmailTemplatesUpdateRequest(BaseModel):
+    brand_with_distributors: EmailTemplateBlock
+    brand_without_distributors: EmailTemplateBlock
+    distributor_outreach: EmailTemplateBlock
 
 
 class DistributorOutreachCampaignResponse(BaseModel):

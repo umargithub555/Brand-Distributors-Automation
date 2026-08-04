@@ -31,6 +31,10 @@ class Settings:
     outreach_send_delay_seconds: int
     outreach_retry_delay_seconds: int
     outreach_max_attempts: int
+    brand_processing_max_parallel: int
+    outreach_worker_max_parallel: int
+    worker_max_jobs: int
+    worker_job_timeout_seconds: int
 
 
 def _to_bool(value: str | None, default: bool) -> bool:
@@ -41,6 +45,9 @@ def _to_bool(value: str | None, default: bool) -> bool:
 
 @lru_cache
 def get_settings() -> Settings:
+    brand_processing_max_parallel = int(os.getenv('BRAND_PROCESSING_MAX_PARALLEL', '2'))
+    outreach_worker_max_parallel = int(os.getenv('OUTREACH_WORKER_MAX_PARALLEL', '3'))
+    worker_max_jobs = int(os.getenv('WORKER_MAX_JOBS', str(max(brand_processing_max_parallel + outreach_worker_max_parallel, 5))))
     return Settings(
         app_name=os.getenv('APP_NAME', 'Brand Intelligence API'),
         mongo_url=os.getenv('MONGO_URL', ''),
@@ -48,7 +55,7 @@ def get_settings() -> Settings:
         brand_gemini_api_key=os.getenv('COMPANY_GEMINI_API_KEY', ''),
         research_model=os.getenv('RESEARCH_MODEL', 'gemini-3-flash-preview'),
         structuring_model=os.getenv('STRUCTURING_MODEL', 'gemini-3.1-flash-lite'),
-        research_timeout_seconds=float(os.getenv('RESEARCH_TIMEOUT_SECONDS', '150')),
+        research_timeout_seconds=float(os.getenv('RESEARCH_TIMEOUT_SECONDS', '180')),
         structure_timeout_seconds=float(os.getenv('STRUCTURE_TIMEOUT_SECONDS', '150')),
         smtp_host=os.getenv('SMTP_HOST'),
         smtp_port=int(os.getenv('SMTP_PORT', '587')),
@@ -62,4 +69,8 @@ def get_settings() -> Settings:
         outreach_send_delay_seconds=int(os.getenv('OUTREACH_SEND_DELAY_SECONDS', '45')),
         outreach_retry_delay_seconds=int(os.getenv('OUTREACH_RETRY_DELAY_SECONDS', '300')),
         outreach_max_attempts=int(os.getenv('OUTREACH_MAX_ATTEMPTS', '3')),
+        brand_processing_max_parallel=brand_processing_max_parallel,
+        outreach_worker_max_parallel=outreach_worker_max_parallel,
+        worker_max_jobs=worker_max_jobs,
+        worker_job_timeout_seconds=int(os.getenv('WORKER_JOB_TIMEOUT_SECONDS', '1800')),
     )

@@ -1,8 +1,10 @@
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter
 
 from backend.models.schemas import (
+    BrandBulkProcessingCancelRequest,
+    BrandBulkProcessingTriggerRequest,
     BrandEmailSendRequest,
     BrandProcessingTriggerRequest,
     BrandUpdateRequest,
@@ -11,13 +13,15 @@ from backend.models.schemas import (
 )
 from backend.services.brands import (
     bulk_upload_brands,
+    cancel_brand_processing,
+    cancel_bulk_brand_processing,
     delete_brand,
     get_stats,
     list_processed_brands,
     list_queue_brands,
     mark_brand_processed,
-    process_brand_in_background,
     queue_brand_processing,
+    queue_bulk_brand_processing,
     update_brand_details,
 )
 from backend.services.distributor_outreach import (
@@ -79,16 +83,27 @@ def mark_processed(brand_id: str):
 
 
 @router.post('/brands/{brand_id}/trigger')
-def trigger_brand_processing(
+async def trigger_brand_processing(
     brand_id: str,
-    background_tasks: BackgroundTasks,
     payload: BrandProcessingTriggerRequest | None = None,
 ):
-    research_mode = payload.research_mode if payload else 'detailed'
-    response = queue_brand_processing(brand_id, research_mode=research_mode)
-    if response['status'] == 'queued':
-        background_tasks.add_task(process_brand_in_background, brand_id)
-    return response
+    research_mode = payload.research_mode if payload else 'short'
+    return await queue_brand_processing(brand_id, research_mode=research_mode)
+
+
+@router.post('/brands/trigger-bulk')
+async def trigger_bulk_brand_processing(payload: BrandBulkProcessingTriggerRequest):
+    return await queue_bulk_brand_processing(payload.brand_ids, research_mode=payload.research_mode)
+
+
+@router.post('/brands/{brand_id}/cancel')
+async def stop_brand_processing(brand_id: str):
+    return await cancel_brand_processing(brand_id)
+
+
+@router.post('/brands/cancel-bulk')
+async def stop_bulk_brand_processing(payload: BrandBulkProcessingCancelRequest):
+    return await cancel_bulk_brand_processing(payload.brand_ids)
 
 
 @router.get('/brands/{brand_id}/email-draft')

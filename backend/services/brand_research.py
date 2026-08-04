@@ -3,6 +3,12 @@ from google.genai.types import GenerateContentConfig, GoogleSearch, Tool
 
 from backend.core.config import get_settings
 from backend.models.schemas import DistributorRequest, Output
+
+
+async def _noop_checkpoint():
+    return None
+
+
 from backend.utils.constants import REQUEST_TYPE_BRAND_DISTRIBUTOR_RESEARCH
 from backend.utils.gemini import generate_with_timeout
 from backend.utils.prompts import (
@@ -44,7 +50,8 @@ def _combine_research_notes(
 """.strip()
 
 
-async def _run_short_research(req: DistributorRequest, step_metrics: list):
+async def _run_short_research(req: DistributorRequest, step_metrics: list, checkpoint):
+    await checkpoint()
     research_response, research_duration = await generate_with_timeout(
         'research step',
         _settings.research_timeout_seconds,
@@ -61,7 +68,8 @@ async def _run_short_research(req: DistributorRequest, step_metrics: list):
     return research_text
 
 
-async def _run_detailed_research(req: DistributorRequest, step_metrics: list):
+async def _run_detailed_research(req: DistributorRequest, step_metrics: list, checkpoint):
+    await checkpoint()
     brand_profile_response, brand_profile_duration = await generate_with_timeout(
         'brand profile research step',
         _settings.research_timeout_seconds,
@@ -81,6 +89,7 @@ async def _run_detailed_research(req: DistributorRequest, step_metrics: list):
     if not brand_profile_text:
         raise HTTPException(status_code=500, detail='Gemini returned no brand profile research content.')
 
+    await checkpoint()
     distributor_discovery_response, distributor_discovery_duration = await generate_with_timeout(
         'distributor discovery research step',
         _settings.research_timeout_seconds,
@@ -100,6 +109,7 @@ async def _run_detailed_research(req: DistributorRequest, step_metrics: list):
     if not distributor_discovery_text:
         raise HTTPException(status_code=500, detail='Gemini returned no distributor discovery content.')
 
+    await checkpoint()
     distributor_enrichment_response, distributor_enrichment_duration = await generate_with_timeout(
         'distributor enrichment research step',
         _settings.research_timeout_seconds,
@@ -130,11 +140,12 @@ async def _run_detailed_research(req: DistributorRequest, step_metrics: list):
     )
 
 
-async def find_distributors(req: DistributorRequest, research_mode: str = 'detailed') -> Output:
-    research_mode = (research_mode or 'detailed').strip().lower()
+async def find_distributors(req: DistributorRequest, research_mode: str = 'short', checkpoint=None) -> Output:
+    research_mode = (research_mode or 'short').strip().lower()
     if research_mode not in VALID_RESEARCH_MODES:
         raise HTTPException(status_code=400, detail=f'Invalid research_mode: {research_mode}')
 
+    checkpoint = checkpoint or _noop_checkpoint
     print(f'Received request for brand: {req.brand}, country: {req.country}, mode: {research_mode}')
     started_at = utcnow_iso()
     step_metrics = []
@@ -143,12 +154,13 @@ async def find_distributors(req: DistributorRequest, research_mode: str = 'detai
     try:
         # Legacy single-pass research flow preserved via the `short` mode for quick fallback.
         if research_mode == 'short':
-            research_text = await _run_short_research(req, step_metrics)
+            research_text = await _run_short_research(req, step_metrics, checkpoint)
         else:
-            research_text = await _run_detailed_research(req, step_metrics)
+            research_text = await _run_detailed_research(req, step_metrics, checkpoint)
 
         print(f"Research output: {research_text}")
 
+        await checkpoint()
         structured_response, structuring_duration = await generate_with_timeout(
             'structuring step',
             _settings.structure_timeout_seconds,

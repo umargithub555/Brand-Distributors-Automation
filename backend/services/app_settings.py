@@ -1,14 +1,25 @@
-﻿from datetime import datetime, timezone
+from datetime import datetime, timezone
+from string import Formatter
 
 from fastapi import HTTPException
 
 from backend.core.config import get_settings
 from backend.core.database import db
-from backend.models.schemas import SMTPSettingsResponse, SMTPSettingsUpdateRequest
+from backend.models.schemas import (
+    EmailTemplatesResponse,
+    EmailTemplatesUpdateRequest,
+    SMTPSettingsResponse,
+    SMTPSettingsUpdateRequest,
+)
 
 _settings = get_settings()
 _COLLECTION = db['AppSettings']
-_DOCUMENT_KEY = 'smtp'
+_SMTP_DOCUMENT_KEY = 'smtp'
+_EMAIL_TEMPLATES_DOCUMENT_KEY = 'email_templates'
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _base_smtp_settings() -> dict:
@@ -24,9 +35,100 @@ def _base_smtp_settings() -> dict:
     }
 
 
+def _default_email_templates() -> dict:
+    return {
+        'brand_with_distributors': {
+            'subject': 'Distributor Verification Request - {brand_name}',
+            'body': '''Dear {recipient_label} Team,
+
+I hope this message finds you well.
+
+We are conducting authorized distributor research for {brand_name} in {country} and have identified the following companies that appear to carry or distribute your brand.
+
+Could you please review this list and confirm:
+1. Which of these are officially authorized distributors of {brand_name}?
+2. Are there any on this list that are NOT authorized?
+3. Are there any official distributors we may have missed?
+
+--- Identified Distributors ---
+{distributor_list}
+-------------------------------
+
+Your confirmation will help us ensure we are sourcing through the correct authorized channels only.
+
+We are serious buyers looking to establish a long-term business relationship and want to work exclusively through your official distribution network.
+
+Thank you for your time. We look forward to your response.
+
+Best regards,
+[Your Name]
+[Your Company]
+[Your Phone Number]''',
+        },
+        'brand_without_distributors': {
+            'subject': 'Distributor Inquiry - {brand_name} in {country}',
+            'body': '''Dear {recipient_label} Team,
+
+I hope this message finds you well.
+
+We are actively looking to source {brand_name} products in {country} and were unable to locate an official distributor list through public channels.
+
+Could you please:
+1. Share your official distributor list for the {country} region, or
+2. Confirm who the authorized distributors or wholesale partners are for {brand_name} in {country}, or
+3. Point us to the right contact or department who handles distributor partnerships?
+
+We are serious buyers looking to establish a long-term business relationship and want to ensure we are working through your official authorized channels.
+
+Thank you for your time. We look forward to hearing from you.
+
+Best regards,
+[Your Name]
+[Your Company]
+[Your Phone Number]''',
+        },
+        'distributor_outreach': {
+            'subject': 'Verification Request: {distributor_name} and {brand_name}',
+            'body': '''Hello {distributor_name} team,
+
+We are currently reviewing supplier and distribution channels for {brand_name} in {country}.
+
+Your company appeared in our research as a business that may distribute or carry {brand_name}. Could you please confirm:
+1. Whether you are currently an authorized or active distributor of {brand_name}
+2. Whether you distribute the brand directly or through another upstream supplier
+3. The best point of contact for commercial purchasing if you do handle this brand
+
+If you are not a distributor for {brand_name}, a short clarification would still be very helpful.
+
+Thank you for your time.
+
+Best regards,
+IR Solutions Team
+IR Solutions
+contact@irsolutions.com
++1-800-000-0000''',
+        },
+    }
+
+
+def _merge_nested_dict(defaults: dict, stored: dict) -> dict:
+    merged = {}
+    for key, value in defaults.items():
+        if isinstance(value, dict):
+            merged[key] = dict(value)
+            stored_value = stored.get(key) or {}
+            if isinstance(stored_value, dict):
+                for nested_key, nested_value in stored_value.items():
+                    if nested_value is not None:
+                        merged[key][nested_key] = nested_value
+        else:
+            merged[key] = stored.get(key, value)
+    return merged
+
+
 def load_smtp_settings() -> dict:
     values = _base_smtp_settings()
-    doc = _COLLECTION.find_one({'key': _DOCUMENT_KEY}) or {}
+    doc = _COLLECTION.find_one({'key': _SMTP_DOCUMENT_KEY}) or {}
     stored = doc.get('values') or {}
     for key in values:
         if key in stored and stored[key] is not None:
@@ -34,9 +136,16 @@ def load_smtp_settings() -> dict:
     return values
 
 
+def load_email_templates() -> dict:
+    defaults = _default_email_templates()
+    doc = _COLLECTION.find_one({'key': _EMAIL_TEMPLATES_DOCUMENT_KEY}) or {}
+    stored = doc.get('values') or {}
+    return _merge_nested_dict(defaults, stored)
+
+
 def get_smtp_settings() -> SMTPSettingsResponse:
     merged = load_smtp_settings()
-    doc = _COLLECTION.find_one({'key': _DOCUMENT_KEY}) or {}
+    doc = _COLLECTION.find_one({'key': _SMTP_DOCUMENT_KEY}) or {}
     stored = doc.get('values') or {}
     return SMTPSettingsResponse(
         smtp_host=merged.get('smtp_host', ''),
@@ -52,8 +161,14 @@ def get_smtp_settings() -> SMTPSettingsResponse:
     )
 
 
+def get_email_templates() -> EmailTemplatesResponse:
+    merged = load_email_templates()
+    doc = _COLLECTION.find_one({'key': _EMAIL_TEMPLATES_DOCUMENT_KEY}) or {}
+    return EmailTemplatesResponse(updated_at=doc.get('updated_at'), **merged)
+
+
 def update_smtp_settings(payload: SMTPSettingsUpdateRequest) -> SMTPSettingsResponse:
-    existing = _COLLECTION.find_one({'key': _DOCUMENT_KEY}) or {}
+    existing = _COLLECTION.find_one({'key': _SMTP_DOCUMENT_KEY}) or {}
     values = existing.get('values') or {}
 
     updates = payload.model_dump(exclude_none=True)
@@ -77,17 +192,52 @@ def update_smtp_settings(payload: SMTPSettingsUpdateRequest) -> SMTPSettingsResp
         values['smtp_use_tls'] = False
 
     _COLLECTION.update_one(
-        {'key': _DOCUMENT_KEY},
+        {'key': _SMTP_DOCUMENT_KEY},
         {
             '$set': {
-                'key': _DOCUMENT_KEY,
+                'key': _SMTP_DOCUMENT_KEY,
                 'values': values,
-                'updated_at': datetime.now(timezone.utc).isoformat(),
+                'updated_at': _utcnow_iso(),
             }
         },
         upsert=True,
     )
     return get_smtp_settings()
+
+
+def update_email_templates(payload: EmailTemplatesUpdateRequest) -> EmailTemplatesResponse:
+    values = payload.model_dump()
+    for template_key, template in values.items():
+        if not template.get('subject', '').strip():
+            raise HTTPException(status_code=400, detail=f'Template subject is required for {template_key}')
+        if not template.get('body', '').strip():
+            raise HTTPException(status_code=400, detail=f'Template body is required for {template_key}')
+
+    _COLLECTION.update_one(
+        {'key': _EMAIL_TEMPLATES_DOCUMENT_KEY},
+        {
+            '$set': {
+                'key': _EMAIL_TEMPLATES_DOCUMENT_KEY,
+                'values': values,
+                'updated_at': _utcnow_iso(),
+            }
+        },
+        upsert=True,
+    )
+    return get_email_templates()
+
+
+def render_template(template: str, context: dict) -> str:
+    safe_context = {key: '' if value is None else str(value) for key, value in context.items()}
+    formatter = Formatter()
+    chunks = []
+    for literal_text, field_name, format_spec, conversion in formatter.parse(template):
+        chunks.append(literal_text)
+        if field_name is None:
+            continue
+        value = safe_context.get(field_name, '')
+        chunks.append(value)
+    return ''.join(chunks).strip()
 
 
 def require_smtp_settings() -> dict:
