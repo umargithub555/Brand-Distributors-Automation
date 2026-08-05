@@ -1,4 +1,4 @@
-from fastapi import HTTPException
+﻿from fastapi import HTTPException
 from google.genai.types import GenerateContentConfig, GoogleSearch, Tool
 
 from backend.core.config import get_settings

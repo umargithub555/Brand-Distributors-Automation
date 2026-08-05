@@ -2,6 +2,7 @@ import asyncio
 from datetime import timedelta
 
 from bson import ObjectId
+from arq.connections import RedisSettings
 
 from backend.core.config import get_settings
 from backend.core.database import db
@@ -61,5 +62,6 @@ async def send_distributor_outreach_email(ctx, campaign_id: str, target_id: str)
 
 class WorkerSettings:
     functions = [send_distributor_outreach_email, process_brand_research_job]
+    redis_settings = RedisSettings.from_dsn(_settings.redis_url)
     max_jobs = _settings.worker_max_jobs
     job_timeout = _settings.worker_job_timeout_seconds
