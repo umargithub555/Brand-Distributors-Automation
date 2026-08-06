@@ -1,0 +1,8 @@
+fastapi==0.121.3
+uvicorn[standard]==0.38.0
+pymongo==4.15.5
+python-dotenv==1.2.1
+pydantic==2.12.5
+google-genai==2.10.0
+arq==0.28.0
+redis==5.3.1

@@ -35,6 +35,13 @@ class Settings:
     outreach_worker_max_parallel: int
     worker_max_jobs: int
     worker_job_timeout_seconds: int
+    default_admin_email: str
+    default_admin_password: str
+    SESSION_TTL_DAYS: int
+    SESSION_IDLE_TIMEOUT_MINUTES: int
+    OTP_TTL_MINUTES: int
+    PBKDF2_ROUNDS: int
+    MIN_PASSWORD_LENGTH: int
 
 
 def _to_bool(value: str | None, default: bool) -> bool:
@@ -73,4 +80,11 @@ def get_settings() -> Settings:
         outreach_worker_max_parallel=outreach_worker_max_parallel,
         worker_max_jobs=worker_max_jobs,
         worker_job_timeout_seconds=int(os.getenv('WORKER_JOB_TIMEOUT_SECONDS', '1800')),
+        default_admin_email=os.getenv('DEFAULT_ADMIN_EMAIL'),
+        default_admin_password=os.getenv('DEFAULT_ADMIN_PASSWORD'),
+        SESSION_TTL_DAYS=int(os.getenv('SESSION_TTL_DAYS', '3')),
+        SESSION_IDLE_TIMEOUT_MINUTES=int(os.getenv('SESSION_IDLE_TIMEOUT_MINUTES', '30')),
+        OTP_TTL_MINUTES=int(os.getenv('OTP_TTL_MINUTES', '10')),
+        PBKDF2_ROUNDS=int(os.getenv('PBKDF2_ROUNDS', '120000')),
+        MIN_PASSWORD_LENGTH=int(os.getenv('MIN_PASSWORD_LENGTH', '8')),
     )
