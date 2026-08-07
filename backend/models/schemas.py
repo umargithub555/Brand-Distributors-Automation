@@ -6,11 +6,14 @@ from pydantic import BaseModel, Field
 class DistributorRequest(BaseModel):
     brand: str
     country: str
+    product_context: Optional[str] = None
 
 
 class BrandUploadItem(BaseModel):
     brand: str
     country: str = 'USA'
+    product_context: Optional[str] = None
+    research_mode: str = 'short'
 
 
 class BulkUploadRequest(BaseModel):
@@ -67,6 +70,7 @@ class EditableDistributor(BaseModel):
 class BrandUpdateRequest(BaseModel):
     brand: str
     country: str = 'USA'
+    product_context: Optional[str] = None
     parent_company: Optional[str] = None
     official_website: Optional[str] = None
     brand_address: Optional[str] = None
@@ -315,3 +319,40 @@ class DistributorOutreachCampaignDetail(BaseModel):
     created_at: str
     updated_at: Optional[str] = None
     targets: List[DistributorOutreachTargetStatus] = Field(default_factory=list)
+
+
+
+class BasicMessageResponse(BaseModel):
+    success: bool = True
+    message: str
+
+
+class AdminProfileResponse(BaseModel):
+    email: str
+    name: str
+    role: str = 'admin'
+
+
+class AuthLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AuthLoginResponse(BaseModel):
+    token: str
+    admin: AdminProfileResponse
+
+
+class AuthForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class AuthResetPasswordRequest(BaseModel):
+    email: str
+    otp: str
+    new_password: str
+
+
+class AuthChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str

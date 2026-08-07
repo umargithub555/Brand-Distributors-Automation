@@ -22,6 +22,15 @@ VALID_RESEARCH_MODES = {'detailed', 'short'}
 ACTIVE_PROCESSING_STATUSES = {'queued', 'running', 'cancelling'}
 
 
+def ensure_brand_indexes():
+    BRANDS.create_index([('deleted', 1), ('processed', 1), ('processed_at', -1)])
+    BRANDS.create_index([('deleted', 1), ('created_at', -1)])
+    BRANDS.create_index([('deleted', 1), ('processing_status', 1)])
+    BRANDS.create_index([('deleted', 1), ('emails_found', 1), ('email_sent', 1)])
+    BRANDS.create_index([('deleted', 1), ('distributors_found', 1)])
+    BRANDS.create_index([('brand', 1)], unique=False)
+
+
 def active_brand_query(base: dict | None = None) -> dict:
     query = dict(base or {})
     query['deleted'] = {'$ne': True}
@@ -32,18 +41,20 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-async def list_processed_brands(email_sent, distributors_found, emails_found, q, skip, limit):
-    query = active_brand_query({'processed': True})
+async def list_processed_brands(email_sent, distributors_found, emails_found, q, skip, limit, processed=None):
+    base_query = {'processed': processed} if processed is not None else {}
+    query = active_brand_query(base_query)
     if email_sent is not None:
         query['email_sent'] = email_sent
     if distributors_found is not None:
         query['distributors_found'] = distributors_found
     if emails_found is not None:
         query['emails_found'] = emails_found
-    query = build_search_query(query, q, ['brand', 'country', 'parent_company'])
+    query = build_search_query(query, q, ['brand', 'country', 'parent_company', 'product_context'])
 
     total = BRANDS.count_documents(query)
-    items = list(BRANDS.find(query).sort('processed_at', -1).skip(skip).limit(limit))
+    sort_field = 'processed_at' if processed is True else 'created_at'
+    items = list(BRANDS.find(query).sort(sort_field, -1).skip(skip).limit(limit))
     return {
         'items': encode_document(items),
         'total': total,
@@ -104,6 +115,8 @@ def bulk_upload_brands(payload: BulkUploadRequest):
                         'processed': False,
                         'processing_status': 'idle',
                         'processing_error': None,
+                        'product_context': item.product_context.strip() if item.product_context else None,
+                        'processing_research_mode': _normalize_research_mode(item.research_mode),
                         'updated_at': _utcnow_iso(),
                     }
                 },
@@ -114,9 +127,10 @@ def bulk_upload_brands(payload: BulkUploadRequest):
         doc = {
             'brand': item.brand,
             'country': item.country,
+            'product_context': item.product_context.strip() if item.product_context else None,
             'processed': False,
             'processing_status': 'idle',
-            'processing_research_mode': 'short',
+            'processing_research_mode': _normalize_research_mode(item.research_mode),
             'created_at': _utcnow_iso(),
             'deleted': False,
             'deleted_at': None,
@@ -175,6 +189,7 @@ def update_brand_details(brand_id: str, payload: BrandUpdateRequest):
     update_doc = {
         'brand': payload.brand.strip(),
         'country': payload.country.strip() or 'USA',
+        'product_context': payload.product_context.strip() if payload.product_context else None,
         'parent_company': payload.parent_company.strip() if payload.parent_company else None,
         'official_website': payload.official_website.strip() if payload.official_website else None,
         'brand_address': payload.brand_address.strip() if payload.brand_address else None,
@@ -222,12 +237,13 @@ def mark_brand_processed(brand_id: str):
     return {'success': True, 'brand_id': brand_id}
 
 
-def _flatten_research_result(brand_id: str, output: Output, research_mode: str) -> dict:
+def _flatten_research_result(brand_id: str, output: Output, research_mode: str, product_context: str | None = None) -> dict:
     distributors = output.distributors or []
     brand_emails = output.brand_emails or []
     brand_email = brand_emails[0] if brand_emails else None
     parent_email = output.parent_company_email or None
     return {
+        'product_context': product_context.strip() if product_context else None,
         'parent_company': output.parent_company,
         'official_website': output.official_website,
         'brand_address': output.brand_address,
@@ -502,12 +518,16 @@ async def process_brand_job(brand_id: str, research_mode: str | None = None):
     try:
         await checkpoint()
         output = await find_distributors(
-            DistributorRequest(brand=brand['brand'], country=brand.get('country', 'USA')),
+            DistributorRequest(
+                brand=brand['brand'],
+                country=brand.get('country', 'USA'),
+                product_context=brand.get('product_context'),
+            ),
             research_mode=effective_research_mode,
             checkpoint=checkpoint,
         )
         await checkpoint()
-        update_doc = _flatten_research_result(brand_id, output, effective_research_mode)
+        update_doc = _flatten_research_result(brand_id, output, effective_research_mode, brand.get('product_context'))
         update_doc['processing_completed_at'] = _utcnow_iso()
         BRANDS.update_one({'_id': oid}, {'$set': update_doc})
         return {

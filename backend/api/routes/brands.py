@@ -40,11 +40,12 @@ async def get_brands(
     email_sent: Optional[bool] = None,
     distributors_found: Optional[bool] = None,
     emails_found: Optional[bool] = None,
+    processed: Optional[bool] = None,
     q: Optional[str] = None,
     skip: int = 0,
     limit: int = 20,
 ):
-    return await list_processed_brands(email_sent, distributors_found, emails_found, q, skip, limit)
+    return await list_processed_brands(email_sent, distributors_found, emails_found, q, skip, limit, processed=processed)
 
 
 @router.get('/brands/stats')
