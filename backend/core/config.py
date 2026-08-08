@@ -27,6 +27,7 @@ class Settings:
     smtp_from_name: str
     smtp_use_tls: bool
     smtp_use_ssl: bool
+    smtp_encryption_key: str | None
     redis_url: str
     outreach_send_delay_seconds: int
     outreach_retry_delay_seconds: int
@@ -72,6 +73,7 @@ def get_settings() -> Settings:
         smtp_from_name=os.getenv('SMTP_FROM_NAME', 'Brand Intelligence'),
         smtp_use_tls=_to_bool(os.getenv('SMTP_USE_TLS'), True),
         smtp_use_ssl=_to_bool(os.getenv('SMTP_USE_SSL'), False),
+        smtp_encryption_key=os.getenv('SMTP_ENCRYPTION_KEY') or os.getenv('APP_ENCRYPTION_KEY') or os.getenv('DEFAULT_ADMIN_PASSWORD'),
         redis_url=os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
         outreach_send_delay_seconds=int(os.getenv('OUTREACH_SEND_DELAY_SECONDS', '45')),
         outreach_retry_delay_seconds=int(os.getenv('OUTREACH_RETRY_DELAY_SECONDS', '300')),

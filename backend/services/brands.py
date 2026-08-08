@@ -96,6 +96,7 @@ def bulk_upload_brands(payload: BulkUploadRequest):
         raise HTTPException(status_code=400, detail='No brands provided')
 
     inserted = []
+    inserted_records = []
     skipped = []
     for item in payload.brands:
         existing = BRANDS.find_one({'brand': item.brand})
@@ -121,7 +122,10 @@ def bulk_upload_brands(payload: BulkUploadRequest):
                     }
                 },
             )
+            restored = BRANDS.find_one({'_id': existing['_id']})
             inserted.append(str(existing['_id']))
+            if restored:
+                inserted_records.append(restored)
             continue
 
         doc = {
@@ -136,9 +140,17 @@ def bulk_upload_brands(payload: BulkUploadRequest):
             'deleted_at': None,
         }
         result = BRANDS.insert_one(doc)
+        created = BRANDS.find_one({'_id': result.inserted_id})
         inserted.append(str(result.inserted_id))
+        if created:
+            inserted_records.append(created)
 
-    return {'inserted': len(inserted), 'skipped': len(skipped), 'ids': inserted}
+    return {
+        'inserted': len(inserted),
+        'skipped': len(skipped),
+        'ids': inserted,
+        'items': encode_document(inserted_records),
+    }
 
 
 def list_queue_brands(q, processed, skip, limit):

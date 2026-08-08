@@ -322,6 +322,46 @@ class DistributorOutreachCampaignDetail(BaseModel):
 
 
 
+class BulkEmailStartRequest(BaseModel):
+    daily_limit: int = Field(default=15, ge=1, le=500)
+
+
+class BulkEmailBatchResponse(BaseModel):
+    batch_id: str
+    status: str
+    daily_limit: int
+    requested_limit: int
+    available_slots: int
+    total_targets: int
+    queued_targets: int
+    sent_targets: int
+    failed_targets: int
+    skipped_targets: int
+    created_at: str
+    updated_at: Optional[str] = None
+
+
+class BulkEmailTargetStatus(BaseModel):
+    target_id: str
+    email_kind: str
+    brand_id: str
+    brand_name: str
+    recipient_name: str
+    to_email: Optional[str] = None
+    subject: str
+    status: str
+    scheduled_for: Optional[str] = None
+    sent_at: Optional[str] = None
+    last_error: Optional[str] = None
+    last_error_type: Optional[str] = None
+    order_index: int = 0
+
+
+class BulkEmailBatchDetail(BaseModel):
+    batch: BulkEmailBatchResponse
+    targets: List[BulkEmailTargetStatus] = Field(default_factory=list)
+
+
 class BasicMessageResponse(BaseModel):
     success: bool = True
     message: str

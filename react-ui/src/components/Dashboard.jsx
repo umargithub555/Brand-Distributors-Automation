@@ -65,19 +65,16 @@ function Dashboard({ apiUrl }) {
 
   return (
     <div className="page-shell">
-      <section className="page-hero dashboard-hero">
+      {/*<section className="page-hero dashboard-hero">
         <div>
           <span className="eyebrow"><Sparkles size={12} /> Research overview</span>
-          <h2 className="page-title">Keep the pipeline moving from intake to outreach</h2>
+           <h2 className="page-title">Keep the pipeline moving from intake to outreach</h2> 
           <p className="page-subtitle">
-            Use this dashboard as the operating summary, then jump into Brands for reviewed results and Processing Queue for work that still needs attention.
+            Use this dashboard as the operating summary, then jump into Brands for reviewing results and Processing Brands for work that still needs attention.
           </p>
         </div>
-        <button onClick={loadStats} className="btn-primary btn-secondary" disabled={loading}>
-          <RefreshCw size={14} className={loading ? 'spin-inline' : ''} />
-          Refresh stats
-        </button>
-      </section>
+        
+      </section>*/}
 
       <div className="stats-grid stats-grid--dashboard">
         <div className="stat-card">
@@ -159,7 +156,7 @@ function Dashboard({ apiUrl }) {
         </section>
       </div>
 
-      <section className="dashboard-actions-grid">
+      {/* <section className="dashboard-actions-grid">
         <Link to="/brands" className="surface-card action-card">
           <div className="action-card__icon"><Send size={18} /></div>
           <div>
@@ -184,7 +181,7 @@ function Dashboard({ apiUrl }) {
           </div>
           <ArrowRight size={18} />
         </Link>
-      </section>
+      </section> */}
 
       {error && (
         <div className="surface-card empty-inline dashboard-error">

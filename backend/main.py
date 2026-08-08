@@ -18,6 +18,7 @@ from backend.api.routes.settings import router as settings_router
 from backend.core.config import get_settings
 from backend.services.auth import ensure_admin_seeded, require_admin
 from backend.services.brands import ensure_brand_indexes
+from backend.services.bulk_email import ensure_bulk_email_indexes
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
@@ -34,6 +35,7 @@ app.add_middleware(
 def seed_default_admin():
     ensure_admin_seeded()
     ensure_brand_indexes()
+    ensure_bulk_email_indexes()
 
 
 app.include_router(health_router)

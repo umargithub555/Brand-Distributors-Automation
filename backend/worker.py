@@ -7,6 +7,7 @@ from arq.connections import RedisSettings
 from backend.core.config import get_settings
 from backend.core.database import db
 from backend.services.brands import process_brand_job
+from backend.services.bulk_email import send_bulk_email_target
 from backend.services.distributor_outreach import mark_target_sending, update_target_after_send
 from backend.services.emailing import send_email_message_sync
 from backend.utils.email_errors import classify_smtp_error
@@ -61,7 +62,7 @@ async def send_distributor_outreach_email(ctx, campaign_id: str, target_id: str)
 
 
 class WorkerSettings:
-    functions = [send_distributor_outreach_email, process_brand_research_job]
+    functions = [send_distributor_outreach_email, send_bulk_email_target, process_brand_research_job]
     redis_settings = RedisSettings.from_dsn(_settings.redis_url)
     max_jobs = _settings.worker_max_jobs
     job_timeout = _settings.worker_job_timeout_seconds

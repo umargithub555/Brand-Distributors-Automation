@@ -13,6 +13,7 @@ from backend.services.app_settings import load_email_templates, render_template,
 from backend.utils.email_errors import classify_smtp_error
 
 BRAND_ATTEMPTS = db['BrandEmailAttempts']
+DISTRIBUTOR_ATTEMPTS = db['DistributorEmailAttempts']
 
 
 def _build_distributor_list(distributors: list[dict]) -> str:
@@ -217,6 +218,142 @@ async def send_brand_email_approved(brand_id: str, to_email: str, subject: str, 
         }},
     )
     return {'success': True, 'brand_id': brand_id, 'brand_name': brand.get('brand')}
+
+
+
+def _get_attempt_or_404(collection, attempt_id: str):
+    try:
+        oid = ObjectId(attempt_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='Invalid attempt ID') from exc
+
+    attempt = collection.find_one({'_id': oid})
+    if not attempt:
+        raise HTTPException(status_code=404, detail='Email attempt not found')
+    return oid, attempt
+
+
+async def resend_brand_email_attempt(attempt_id: str):
+    _attempt_oid, attempt = _get_attempt_or_404(BRAND_ATTEMPTS, attempt_id)
+    brand_id = attempt.get('brand_id')
+    if not brand_id:
+        raise HTTPException(status_code=400, detail='Attempt is missing brand reference')
+
+    oid, brand = _get_brand_or_404(str(brand_id))
+    to_email = (attempt.get('to_email') or '').strip()
+    subject = (attempt.get('subject') or '').strip()
+    body = attempt.get('body') or ''
+    email_type = attempt.get('email_type') or _choose_recipient(brand)[1]
+
+    if not to_email:
+        raise HTTPException(status_code=400, detail='Attempt is missing recipient email')
+    if not subject:
+        raise HTTPException(status_code=400, detail='Attempt is missing subject')
+    if not body.strip():
+        raise HTTPException(status_code=400, detail='Attempt is missing email body')
+
+    try:
+        await asyncio.to_thread(send_email_message_sync, to_email, subject, body)
+    except Exception as exc:
+        error_message = str(exc)
+        error_type = classify_smtp_error(error_message)
+        _build_brand_attempt_record(
+            brand,
+            to_email,
+            email_type,
+            subject,
+            body,
+            success=False,
+            error=error_message,
+            error_type=error_type,
+        )
+        db['Brands'].update_one(
+            {'_id': oid},
+            {'$set': {
+                'email_last_error': error_message,
+                'email_last_error_type': error_type,
+                'email_last_attempt_at': datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        raise HTTPException(status_code=502, detail=error_message) from exc
+
+    _build_brand_attempt_record(
+        brand,
+        to_email,
+        email_type,
+        subject,
+        body,
+        success=True,
+        error=None,
+        error_type=None,
+    )
+    db['Brands'].update_one(
+        {'_id': oid},
+        {'$set': {
+            'email_sent': True,
+            'email_sent_to': to_email,
+            'email_sent_at': datetime.now(timezone.utc).isoformat(),
+            'email_sent_type': email_type,
+            'email_subject': subject,
+            'email_body': body,
+            'email_activity_logged': True,
+            'email_last_error': None,
+            'email_last_error_type': None,
+            'email_last_attempt_at': datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {'success': True, 'brand_id': str(oid), 'brand_name': brand.get('brand')}
+
+
+async def resend_distributor_email_attempt(attempt_id: str):
+    old_attempt_oid, attempt = _get_attempt_or_404(DISTRIBUTOR_ATTEMPTS, attempt_id)
+    to_email = (attempt.get('to_email') or '').strip()
+    subject = (attempt.get('subject') or '').strip()
+    body = attempt.get('body') or ''
+
+    if not to_email:
+        raise HTTPException(status_code=400, detail='Attempt is missing recipient email')
+    if not subject:
+        raise HTTPException(status_code=400, detail='Attempt is missing subject')
+    if not body.strip():
+        raise HTTPException(status_code=400, detail='Attempt is missing email body')
+
+    base_record = {
+        'campaign_id': attempt.get('campaign_id'),
+        'target_id': attempt.get('target_id'),
+        'bulk_batch_id': attempt.get('bulk_batch_id'),
+        'bulk_target_id': attempt.get('bulk_target_id'),
+        'brand_id': attempt.get('brand_id'),
+        'brand_name': attempt.get('brand_name'),
+        'distributor_name': attempt.get('distributor_name'),
+        'to_email': to_email,
+        'attempt_number': int(attempt.get('attempt_number') or 1) + 1,
+        'subject': subject,
+        'body': body,
+        'retry_of_attempt_id': old_attempt_oid,
+        'created_at': datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        await asyncio.to_thread(send_email_message_sync, to_email, subject, body)
+    except Exception as exc:
+        error_message = str(exc)
+        error_type = classify_smtp_error(error_message)
+        DISTRIBUTOR_ATTEMPTS.insert_one({
+            **base_record,
+            'success': False,
+            'error': error_message,
+            'error_type': error_type,
+        })
+        raise HTTPException(status_code=502, detail=error_message) from exc
+
+    DISTRIBUTOR_ATTEMPTS.insert_one({
+        **base_record,
+        'success': True,
+        'error': None,
+        'error_type': None,
+    })
+    return {'success': True, 'brand_id': str(attempt.get('brand_id') or ''), 'distributor_name': attempt.get('distributor_name')}
 
 
 async def send_brand_email(brand_id: str):

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import random
 from typing import Optional
 
 from bson import ObjectId
@@ -19,6 +20,8 @@ from backend.utils.email_errors import classify_smtp_error
 from backend.utils.mongo import encode_document
 
 _settings = get_settings()
+OUTREACH_MIN_SEND_DELAY_SECONDS = 120
+OUTREACH_MAX_SEND_DELAY_SECONDS = 300
 CAMPAIGNS = db['DistributorEmailCampaigns']
 TARGETS = db['DistributorEmailTargets']
 ATTEMPTS = db['DistributorEmailAttempts']
@@ -237,7 +240,7 @@ async def queue_distributor_outreach_campaign(
     pool = await get_arq_pool()
     queued_targets = 0
     skipped_targets = 0
-    approved_index = 0
+    cumulative_delay_seconds = 0
 
     for draft in actionable_drafts:
         distributor_name = (draft.distributor_name or '').strip()
@@ -253,11 +256,13 @@ async def queue_distributor_outreach_campaign(
 
         status = 'queued' if email else 'skipped_no_email'
         scheduled_for = None
+        defer_seconds = 0
         if email:
+            defer_seconds = cumulative_delay_seconds
             scheduled_for = (
-                datetime.now(timezone.utc) + timedelta(seconds=approved_index * _settings.outreach_send_delay_seconds)
+                datetime.now(timezone.utc) + timedelta(seconds=defer_seconds)
             ).isoformat()
-            approved_index += 1
+            cumulative_delay_seconds += random.randint(OUTREACH_MIN_SEND_DELAY_SECONDS, OUTREACH_MAX_SEND_DELAY_SECONDS)
 
         target_doc = {
             'campaign_id': campaign_id,
@@ -285,7 +290,7 @@ async def queue_distributor_outreach_campaign(
                 'send_distributor_outreach_email',
                 str(campaign_id),
                 str(target_id),
-                _defer_by=timedelta(seconds=(queued_targets - 1) * _settings.outreach_send_delay_seconds),
+                _defer_by=timedelta(seconds=defer_seconds),
             )
         else:
             skipped_targets += 1

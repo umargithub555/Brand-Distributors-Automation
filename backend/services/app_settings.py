@@ -11,6 +11,7 @@ from backend.models.schemas import (
     SMTPSettingsResponse,
     SMTPSettingsUpdateRequest,
 )
+from backend.utils.secrets import decrypt_secret, encrypt_secret
 
 _settings = get_settings()
 _COLLECTION = db['AppSettings']
@@ -126,13 +127,48 @@ def _merge_nested_dict(defaults: dict, stored: dict) -> dict:
     return merged
 
 
+def _migrate_plaintext_smtp_password(plaintext_password: str) -> None:
+    if not plaintext_password:
+        return
+    encrypted_password = encrypt_secret(plaintext_password, _settings.smtp_encryption_key)
+    _COLLECTION.update_one(
+        {'key': _SMTP_DOCUMENT_KEY},
+        {
+            '$set': {
+                'values.smtp_password_encrypted': encrypted_password,
+                'updated_at': _utcnow_iso(),
+            },
+            '$unset': {'values.smtp_password': ''},
+        },
+    )
+
+
+def _stored_smtp_password(stored: dict) -> str:
+    encrypted_password = stored.get('smtp_password_encrypted')
+    if encrypted_password:
+        return decrypt_secret(encrypted_password, _settings.smtp_encryption_key)
+
+    legacy_plaintext = stored.get('smtp_password')
+    if legacy_plaintext:
+        _migrate_plaintext_smtp_password(legacy_plaintext)
+        return legacy_plaintext
+
+    return ''
+
+
 def load_smtp_settings() -> dict:
     values = _base_smtp_settings()
     doc = _COLLECTION.find_one({'key': _SMTP_DOCUMENT_KEY}) or {}
     stored = doc.get('values') or {}
     for key in values:
+        if key == 'smtp_password':
+            continue
         if key in stored and stored[key] is not None:
             values[key] = stored[key]
+
+    stored_password = _stored_smtp_password(stored)
+    if stored_password:
+        values['smtp_password'] = stored_password
     return values
 
 
@@ -156,7 +192,11 @@ def get_smtp_settings() -> SMTPSettingsResponse:
         smtp_use_tls=bool(merged.get('smtp_use_tls', True)),
         smtp_use_ssl=bool(merged.get('smtp_use_ssl', False)),
         has_password=bool(merged.get('smtp_password')),
-        password_source='database' if 'smtp_password' in stored and stored.get('smtp_password') else ('environment' if _settings.smtp_password else 'unset'),
+        password_source=(
+            'database_encrypted'
+            if stored.get('smtp_password_encrypted')
+            else ('database_legacy_plaintext' if stored.get('smtp_password') else ('environment' if _settings.smtp_password else 'unset'))
+        ),
         updated_at=doc.get('updated_at'),
     )
 
@@ -177,12 +217,17 @@ def update_smtp_settings(payload: SMTPSettingsUpdateRequest) -> SMTPSettingsResp
     for key, value in updates.items():
         if key == 'smtp_password':
             if value:
-                values['smtp_password'] = value
+                values['smtp_password_encrypted'] = encrypt_secret(value, _settings.smtp_encryption_key)
+                values.pop('smtp_password', None)
             continue
         values[key] = value
 
     if clear_password:
-        values['smtp_password'] = ''
+        values.pop('smtp_password_encrypted', None)
+        values.pop('smtp_password', None)
+    elif values.get('smtp_password') and not values.get('smtp_password_encrypted'):
+        values['smtp_password_encrypted'] = encrypt_secret(values['smtp_password'], _settings.smtp_encryption_key)
+        values.pop('smtp_password', None)
 
     values.setdefault('smtp_port', 587)
     values.setdefault('smtp_use_tls', True)
